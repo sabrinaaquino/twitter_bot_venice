@@ -1,3 +1,22 @@
+# Environment and secrets
 .env
-__pycache__
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+venv/
+.venv/
+
+# Runtime state
+state.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Test files (optional - remove if you want to include)
 test_web_search.py

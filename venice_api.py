@@ -1,272 +1,304 @@
+"""
+Venice AI API integration — single-pass analysis + tweet crafting.
+Kimi K2.5 primary (text+vision), GLM Heretic uncensored fallback.
+Includes anti-scam URL screening, output scanning, and censorship detection.
+"""
 import base64
-import requests
-import logging
-from config import Config
 import re
+import logging
+import requests
+from typing import Optional, List
+from config import Config
+from safety import (
+    screen_urls,
+    build_url_safety_context,
+    scan_output,
+    get_scam_warning_reply,
+    is_censored,
+)
 
 logger = logging.getLogger(__name__)
 
-# Module-level constants to avoid recreation
-VENICE_URL = Config.VENICE_URL
-VENICE_HEADERS = {
+# ── Constants ────────────────────────────────────────────────────
+_HEADERS = {
     "Authorization": f"Bearer {Config.VENICE_API_KEY}",
-    "Content-Type": "application/json"
+    "Content-Type": "application/json",
 }
+_REF_RE = re.compile(r"\[REF\].*?\[/REF\]", re.DOTALL)
+_FINAL_RE = re.compile(r"\[FINAL_REPLY\](.*?)\[/FINAL_REPLY\]", re.DOTALL | re.IGNORECASE)
+_NOTES_RE = re.compile(r"\[NOTES\](.*?)\[/NOTES\]", re.DOTALL | re.IGNORECASE)
+
+_BANNED = ("Hey there!", "Hi!", "Hello!", "Stay safe", "Be careful", "Be mindful")
+
+# Keywords that indicate the query needs fresh web data
+_FRESH_DATA_KEYWORDS = (
+    "price", "cost", "worth", "value", "market", "tvl", "apr", "apy",
+    "latest", "current", "now", "today", "recent", "new", "update",
+    "news", "announce", "launch", "release", "just", "breaking",
+    "vvv", "diem", "staking", "stake", "token", "crypto", "bitcoin", "btc", "eth",
+    "model", "models", "venice", "feature", "api",
+    "who won", "who is winning", "score", "result", "election",
+    "weather", "stock", "stocks",
+)
 
 
-def _strip_ref_tags(text: str) -> str:
-    try:
-        return re.sub(r"\[REF\].*?\[/REF\]", "", text, flags=re.DOTALL).strip()
-    except Exception:
-        return text
+def _strip_refs(text: str) -> str:
+    return _REF_RE.sub("", text).strip()
 
 
-def _get_tweet_char_limit() -> int:
-    try:
-        return Config.X_PREMIUM_CHAR_LIMIT if Config.X_PREMIUM_ENABLED else Config.STANDARD_CHAR_LIMIT
-    except Exception:
-        return Config.STANDARD_CHAR_LIMIT
+def _needs_fresh_data(query: str) -> bool:
+    """Check if the query likely needs live web data."""
+    q_lower = query.lower()
+    return any(kw in q_lower for kw in _FRESH_DATA_KEYWORDS)
 
 
-def _extract_final_reply_and_notes(text: str):
-    try:
-        final_match = re.search(r"\[FINAL_REPLY\](.*?)\[/FINAL_REPLY\]", text, flags=re.DOTALL | re.IGNORECASE)
-        notes_match = re.search(r"\[NOTES\](.*?)\[/NOTES\]", text, flags=re.DOTALL | re.IGNORECASE)
-        final_reply = final_match.group(1).strip() if final_match else None
-        notes = notes_match.group(1).strip() if notes_match else None
-        return final_reply, notes
-    except Exception:
-        return None, None
-
-
-def get_expert_analysis(user_message: str, image_bytes: bytes = None, image_url: str = None, context_text: str = None, urls: list = None, article_texts: list = None) -> str:
+def _venice_params(urls: Optional[List[str]] = None, force_search: bool = False) -> dict:
     """
-    STEP 1: Get focused, honest analysis using a single model for cost efficiency.
-    Now returns a concise, tweet-ready answer directly.
+    Standard Venice parameters with web search + scraping.
+    
+    force_search=True will always enable web search (for time-sensitive queries).
+    Otherwise uses 'auto' to let Venice decide.
+    
+    Note: Venice API expects string values 'on'/'off'/'auto' for enable_web_search.
     """
-    expert_prompt = Config.EXPERT_SYSTEM_PROMPT
-
-    # Keep all context - let the AI model decide what's relevant
-
-    # Construct the user message with appropriate context
-    if context_text:
-        if context_text.startswith('[CONTINUING CONVERSATION]'):
-            clean_context = context_text.replace('[CONTINUING CONVERSATION] ', '').replace('[CONTINUING CONVERSATION]', '')
-            final_user_message = f'CONTINUING CONVERSATION: Previous context: "{clean_context}". User now asked: "{user_message}"'
-        else:
-            final_user_message = f'CONVERSATION CONTEXT: In response to the tweet "{context_text}", the user asked: "{user_message}"'
-    else:
-        final_user_message = f'NEW CONVERSATION: User asked: "{user_message}"'
-
-    urls = urls or []
-    article_texts = article_texts or []
-
+    params = {
+        "enable_web_search": "on" if force_search else "auto",
+        "enable_web_scraping": True,
+        "enable_web_citations": False,
+        "include_venice_system_prompt": False,
+    }
     if urls:
-        joined_urls = "\n".join(urls)
-        final_user_message += f"\n\nLINKS TO USE (open and summarize if relevant):\n{joined_urls}"
-
-    if article_texts:
-        # Provide extracted article content as context for summarization
-        joined_articles = "\n\n".join(article_texts)
-        final_user_message += f"\n\nEXTRACTED ARTICLE CONTENT (use as the primary source if links are blocked):\n{joined_articles}"
-
-    # Instruct the expert to produce a final tweet-ready reply block
-    char_limit = _get_tweet_char_limit()
-    final_user_message += (
-        f"\n\nOUTPUT FORMAT (STRICT):\n"
-        f"[FINAL_REPLY]\n"
-        f"<tweet-ready reply within {char_limit} characters; no greetings, no moral advice, no hashtags, no generic endings, no @mentions unless explicitly present in the user's text, no markdown formatting like **bold** or numbered lists>\n"
-        f"[/FINAL_REPLY]\n\n"
-        f"[NOTES]\n"
-        f"(optional) up to 5 bullets with key facts/citations used.\n"
-        f"[/NOTES]\n"
-    )
-
-    # --- Construct the Payload ---
-    if image_bytes or image_url:
-        # Image request - Use Mistral for vision capabilities with web search
-        model = Config.VENICE_MODEL_MISTRAL
-        image_base64 = base64.b64encode(image_bytes).decode('utf-8') if image_bytes else None
-        
-        message_text = final_user_message.strip() or "What's in this image?"
-        
-        # Prefer direct URL if available; otherwise, embed base64
-        image_content = (
-            {"type": "image_url", "image_url": {"url": image_url}}
-            if image_url
-            else {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_base64}"}}
-        )
-
-        payload = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": expert_prompt},
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": message_text},
-                        image_content
-                    ]
-                }
-            ],
-            "venice_parameters": {
-                "enable_web_search": "auto",
-                "enable_web_citations": False,
-                "include_search_results_in_stream": False,
-                "include_venice_system_prompt": False,
-                "web_search_urls": urls if urls else None
-            }
-        }
-        if payload["venice_parameters"].get("web_search_urls") is None:
-            del payload["venice_parameters"]["web_search_urls"]
-    else:
-        # Text-only request - Use Venice Uncensored with web search
-        model = Config.VENICE_MODEL_UNCENSORED
-        payload = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": expert_prompt},
-                {"role": "user", "content": final_user_message}
-            ],
-            "venice_parameters": {
-                "enable_web_search": "auto",
-                "enable_web_citations": False,
-                "include_search_results_in_stream": False,
-                "include_venice_system_prompt": False,
-                "web_search_urls": urls if urls else None
-            }
-        }
-        if payload["venice_parameters"].get("web_search_urls") is None:
-            del payload["venice_parameters"]["web_search_urls"]
-
-    try:
-        response = requests.post(VENICE_URL, json=payload, headers=VENICE_HEADERS)
-        response.raise_for_status()
-        response_data = response.json()
-        result = response_data["choices"][0]["message"]["content"].strip()
-        return _strip_ref_tags(result)
-    except Exception as e:
-        logger.error(f"Error calling Venice API with model {model}: {e}")
-        return Config.ERROR_MESSAGE 
+        params["web_search_urls"] = urls
+    return params
 
 
-# Removed summarizer; the tweet will be crafted directly from the concise expert answer.
-
-
-def craft_tweet(summary_text: str, full_analysis: str = None, use_mistral: bool = False) -> str:
-    """
-    STEP 3: Craft the final uncensored tweet.
-    Uses venice-uncensored by default.
-    If a [FINAL_REPLY] is provided in summary_text, use it directly if it passes checks; otherwise rewrite.
-    If full_analysis is provided, the model should reconsider and improve the take using that reasoning.
-    If use_mistral is True (e.g., image tweets), use the Mistral vision-capable model.
-    """
-    crafter_prompt = Config.TWEET_CRAFTER_SYSTEM_PROMPT
-    char_limit = _get_tweet_char_limit()
-
-    # Try to extract candidate tweet from [FINAL_REPLY]
-    candidate_tweet, notes = _extract_final_reply_and_notes(summary_text or "")
-    banned_patterns = ["Hey there!", "Hi!", "Hello!", "Stay safe", "Be careful", "Be mindful"]
-
-    if candidate_tweet:
-        candidate_tweet = _strip_ref_tags(candidate_tweet)
-        is_banned = any(pattern in candidate_tweet for pattern in banned_patterns)
-        if not is_banned and len(candidate_tweet) <= char_limit:
-            return candidate_tweet.strip()
-        # Needs rewrite: banned phrases or too long
-        strict_prompt = f"""{crafter_prompt}
-
-CRITICAL: Rewrite the following into a compliant tweet under {char_limit} characters. No greetings, no hashtags, no moral advice, no generic endings. Keep specifics.
-
-Original:
-{candidate_tweet}
-
-Optional notes to preserve key facts:
-{notes or ''}
-"""
-        retry_payload = {
-            "model": (Config.VENICE_MODEL_MISTRAL if use_mistral else Config.VENICE_MODEL_UNCENSORED),
-            "messages": [
-                {"role": "system", "content": strict_prompt},
-                {"role": "user", "content": "Rewrite the 'Original' into the final tweet now."}
-            ],
-            "venice_parameters": {
-                "enable_web_search": "auto",
-                "enable_web_citations": False,
-                "include_search_results_in_stream": False,
-                "include_venice_system_prompt": False
-            }
-        }
-        try:
-            retry_response = requests.post(VENICE_URL, json=retry_payload, headers=VENICE_HEADERS)
-            retry_response.raise_for_status()
-            return _strip_ref_tags(retry_response.json()["choices"][0]["message"]["content"].strip())
-        except Exception as e:
-            logger.error(f"Error rewriting FINAL_REPLY: {e}")
-            return Config.ERROR_MESSAGE
-
-    # Fallback: no FINAL_REPLY present—use model to craft from provided points/analysis
-    user_content = ""
-    if full_analysis:
-        user_content = (
-            "Re-evaluate and improve the take using the analysis below. "
-            "Preserve correct facts, strengthen reasoning, and produce the final tweet.\n\n"
-            f"--- Full Analysis (Step 1) ---\n{full_analysis}\n\n"
-            f"--- Key Points ---\n{summary_text}"
-        )
-    else:
-        user_content = f"Points to rewrite into a tweet:\n{summary_text}"
-
-    # Select model based on whether we need vision-capable reply
-    model = Config.VENICE_MODEL_MISTRAL if use_mistral else Config.VENICE_MODEL_UNCENSORED
-
+def _call_venice(
+    model: str,
+    system: str,
+    user_content,
+    urls: Optional[List[str]] = None,
+    temperature: float = 0.7,
+    force_search: bool = False,
+) -> Optional[str]:
+    """Fire a single chat completion request. Returns stripped text or None."""
     payload = {
         "model": model,
+        "temperature": temperature,
         "messages": [
-            {"role": "system", "content": crafter_prompt},
-            {"role": "user", "content": user_content}
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_content},
         ],
-        "venice_parameters": {
-            "enable_web_search": "auto",
-            "enable_web_citations": False,
-            "include_search_results_in_stream": False,
-            "include_venice_system_prompt": False
-        }
+        "venice_parameters": _venice_params(urls, force_search=force_search),
     }
-
     try:
-        response = requests.post(VENICE_URL, json=payload, headers=VENICE_HEADERS)
-        response.raise_for_status()
-        initial_tweet = response.json()["choices"][0]["message"]["content"].strip()
-        initial_tweet = _strip_ref_tags(initial_tweet)
-
-        # Check for banned patterns and retry if found
-        if any(pattern in initial_tweet for pattern in banned_patterns) or len(initial_tweet) > char_limit:
-            logger.warning(f"Tweet violates style/length, retrying with stricter prompt: {initial_tweet}")
-            
-            strict_prompt = f"""{crafter_prompt}
-
-CRITICAL: The following response contained banned phrases or exceeded {char_limit} chars. Rewrite without greetings, moral advice, hashtags, or generic endings. Keep specifics and stay under limit:
-{initial_tweet}
-"""
-            retry_payload = {
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": strict_prompt},
-                    {"role": "user", "content": user_content}
-                ],
-                "venice_parameters": {
-                    "enable_web_search": "auto",
-                    "enable_web_citations": False,
-                    "include_search_results_in_stream": False,
-                    "include_venice_system_prompt": False
-                }
-            }
-            retry_response = requests.post(VENICE_URL, json=retry_payload, headers=VENICE_HEADERS)
-            retry_response.raise_for_status()
-            return _strip_ref_tags(retry_response.json()["choices"][0]["message"]["content"].strip())
-
-        return _strip_ref_tags(initial_tweet)
+        r = requests.post(Config.VENICE_URL, json=payload, headers=_HEADERS, timeout=90)
+        r.raise_for_status()
+        text = r.json()["choices"][0]["message"]["content"].strip()
+        return _strip_refs(text)
     except Exception as e:
-        logger.error(f"Error in Step 3 (Tweet Crafting): {e}")
-        return Config.ERROR_MESSAGE 
+        logger.error(f"Venice API error ({model}): {e}")
+        return None
+
+
+# ── Public API ───────────────────────────────────────────────────
+
+def analyse(
+    query: str,
+    *,
+    context: Optional[str] = None,
+    image_bytes: Optional[bytes] = None,
+    image_url: Optional[str] = None,
+    urls: Optional[List[str]] = None,
+) -> str:
+    """
+    Step 1: Analyse the user's query with full context.
+    Kimi K2.5 handles both text AND vision (it's natively multimodal).
+
+    Model cascade:
+      1. Kimi K2.5 (primary, text+vision)
+      2. If censored → GLM Heretic (uncensored, text-only)
+      3. If vision and Kimi fails → Qwen3-VL (vision fallback)
+      4. Last resort → Venice Uncensored
+
+    SAFETY: URLs are pre-screened. Suspicious/blocked URLs are NOT scraped —
+    instead the AI is told they're unverified/scam so it can warn the user.
+    """
+    char_limit = Config.char_limit()
+    has_image = bool(image_bytes or image_url)
+
+    # ── URL SAFETY SCREENING ──
+    raw_urls = urls or []
+    safe_urls, suspicious_urls, blocked_urls = screen_urls(raw_urls)
+
+    if blocked_urls:
+        logger.warning(f"🚫 Blocked scam URL(s) — returning scam warning: {blocked_urls}")
+        return get_scam_warning_reply(suspicious_urls, blocked_urls)
+
+    # ── Build user message ──
+    if context:
+        if context.startswith("[CONTINUING]"):
+            clean = context.replace("[CONTINUING] ", "").replace("[CONTINUING]", "")
+            msg = f'CONTINUING CONVERSATION — Previous: "{clean}"\nUser now says: "{query}"'
+        else:
+            msg = f'CONTEXT (original tweet): "{context}"\nUser asks: "{query}"'
+    else:
+        msg = query
+
+    url_context = build_url_safety_context(safe_urls, suspicious_urls, blocked_urls)
+    if url_context:
+        msg += f"\n\n{url_context}"
+
+    msg += (
+        f"\n\nOUTPUT (strict):\n"
+        f"[FINAL_REPLY]\n"
+        f"<your tweet-ready reply, ≤{char_limit} chars, plain text, no greetings/hashtags/markdown>\n"
+        f"[/FINAL_REPLY]\n\n"
+        f"[NOTES]\n(optional) key facts/sources used\n[/NOTES]"
+    )
+
+    # ── Build multimodal content if image present ──
+    if has_image:
+        if image_url:
+            img_part = {"type": "image_url", "image_url": {"url": image_url}}
+        else:
+            b64 = base64.b64encode(image_bytes).decode()
+            img_part = {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}
+        user_content_vision = [{"type": "text", "text": msg}, img_part]
+    else:
+        user_content_vision = None
+
+    # Text-only version (for non-vision models like GLM Heretic)
+    user_content_text = msg
+
+    # ── Determine if we should force web search ──
+    # Queries about prices, current events, Venice updates, etc. need fresh data
+    full_query = f"{query} {context or ''}"
+    force_search = _needs_fresh_data(full_query)
+    if force_search:
+        logger.info("🔍 Query needs fresh data — forcing web search")
+
+    # ── MODEL CASCADE ──
+    # 1. Kimi K2.5 — primary for everything (text + vision)
+    content = user_content_vision if has_image else user_content_text
+    result = _call_venice(
+        Config.MODEL_PRIMARY, Config.ANALYST_PROMPT, content,
+        urls=safe_urls or None, force_search=force_search
+    )
+
+    # 2. Censorship check → retry with GLM Heretic (uncensored, text-only)
+    if is_censored(result):
+        logger.info("🔓 Primary model censored — retrying with GLM Heretic (uncensored)")
+        uncensored = _call_venice(
+            Config.MODEL_UNCENSORED, Config.ANALYST_PROMPT, user_content_text,
+            urls=safe_urls or None, force_search=force_search,
+        )
+        if uncensored and not is_censored(uncensored):
+            result = uncensored
+        else:
+            logger.warning("🔓 GLM Heretic also censored or failed — trying last resort")
+            last = _call_venice(
+                Config.MODEL_LAST_RESORT, Config.ANALYST_PROMPT, user_content_text,
+                urls=safe_urls or None, force_search=force_search,
+            )
+            if last and not is_censored(last):
+                result = last
+            elif uncensored:
+                # All models censored — use GLM Heretic's output anyway (least censored)
+                logger.warning("🔓 All models censored — using GLM Heretic response as-is")
+                result = uncensored
+
+    # 3. If primary failed entirely (not censored, just errored) — try vision fallback or text fallback
+    if not result:
+        if has_image:
+            logger.warning("Primary failed on vision — trying Qwen3-VL")
+            result = _call_venice(
+                Config.MODEL_VISION_FALLBACK, Config.ANALYST_PROMPT,
+                user_content_vision, urls=safe_urls or None, force_search=force_search,
+            )
+        if not result:
+            logger.warning("Trying GLM Heretic as general fallback")
+            result = _call_venice(
+                Config.MODEL_UNCENSORED, Config.ANALYST_PROMPT,
+                user_content_text, urls=safe_urls or None, force_search=force_search,
+            )
+        if not result:
+            result = _call_venice(
+                Config.MODEL_LAST_RESORT, Config.ANALYST_PROMPT,
+                user_content_text, urls=safe_urls or None, force_search=force_search,
+            )
+
+    return result or Config.ERROR_MESSAGE
+
+
+def craft_tweet(
+    analysis: str,
+    *,
+    use_vision: bool = False,  # kept for API compat; not used in model selection
+    context_urls: Optional[List[str]] = None,
+) -> str:
+    """
+    Step 2: Shape the analysis into a final tweet.
+    If the analysis already contains a valid [FINAL_REPLY], use it directly.
+    Otherwise, ask the crafter model to rewrite.
+
+    SAFETY: Final output is scanned for scam endorsement AND censorship.
+    """
+    char_limit = Config.char_limit()
+
+    # Try to extract a ready-made reply
+    m = _FINAL_RE.search(analysis)
+    if m:
+        candidate = _strip_refs(m.group(1).strip())
+        if len(candidate) <= char_limit and not any(b in candidate for b in _BANNED):
+            if not is_censored(candidate):
+                is_safe, reason = scan_output(candidate, context_urls)
+                if not is_safe:
+                    logger.warning(f"🚨 Candidate reply blocked: {reason}")
+                    return get_scam_warning_reply()
+                return candidate
+            # Candidate was censored — fall through to uncensored rewrite
+            logger.info("🔓 FINAL_REPLY was censored — rewriting with uncensored model")
+
+    # Notes for context
+    notes_m = _NOTES_RE.search(analysis)
+    notes = notes_m.group(1).strip() if notes_m else ""
+
+    source_text = m.group(1).strip() if m else analysis
+    prompt = (
+        f"Rewrite into a tweet (≤{char_limit} chars). "
+        f"Keep all facts. Plain text only.\n\n"
+        f"SOURCE:\n{source_text}\n\n"
+        f"NOTES:\n{notes}" if notes else
+        f"Rewrite into a tweet (≤{char_limit} chars). "
+        f"Keep all facts. Plain text only.\n\n"
+        f"SOURCE:\n{source_text}"
+    )
+
+    # Try primary first, then uncensored if it self-censors
+    result = _call_venice(Config.MODEL_PRIMARY, Config.CRAFTER_PROMPT, prompt, temperature=0.6)
+
+    if is_censored(result):
+        logger.info("🔓 Crafter censored — retrying with GLM Heretic")
+        result = _call_venice(Config.MODEL_UNCENSORED, Config.CRAFTER_PROMPT, prompt, temperature=0.6)
+
+    if not result or len(result) > char_limit or any(b in result for b in _BANNED):
+        strict = (
+            f"CRITICAL: must be ≤{char_limit} chars. No greetings, no hashtags. "
+            f"Rewrite this:\n{source_text}"
+        )
+        # Use uncensored model for strict rewrite — it won't refuse
+        result = _call_venice(Config.MODEL_UNCENSORED, Config.CRAFTER_PROMPT, strict, temperature=0.5)
+
+    if not result:
+        result = _call_venice(Config.MODEL_LAST_RESORT, Config.CRAFTER_PROMPT, prompt, temperature=0.5)
+
+    if not result:
+        return Config.ERROR_MESSAGE
+
+    # ── OUTPUT SAFETY SCAN ──
+    is_safe, reason = scan_output(result, context_urls)
+    if not is_safe:
+        logger.warning(f"🚨 Final reply blocked: {reason}")
+        return get_scam_warning_reply()
+
+    return result

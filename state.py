@@ -1,51 +1,46 @@
+"""Persistent state — tracks processed tweets and per-conversation author locks."""
 import json
-import os
 from config import Config
+
 
 class State:
     def __init__(self):
-        self.processed_tweets = set()
-        self.allowed_authors = {}  # conversation_id (str) -> author_id (str)
-        self.filename = Config.STATE_FILENAME
+        self.processed: set[str] = set()
+        self.allowed_authors: dict[str, str] = {}  # conversation_id → author_id
 
     def load(self):
         try:
-            with open(self.filename, 'r') as f:
+            with open(Config.STATE_FILE, "r") as f:
                 data = json.load(f)
-                # Backward compatibility: prior format was a list of tweet IDs
-                if isinstance(data, list):
-                    self.processed_tweets = {str(tweet_id) for tweet_id in data}
-                    self.allowed_authors = {}
-                elif isinstance(data, dict):
-                    tweets = data.get('processed_tweets', [])
-                    self.processed_tweets = {str(tweet_id) for tweet_id in tweets}
-                    self.allowed_authors = {
-                        str(conv_id): str(author_id)
-                        for conv_id, author_id in data.get('allowed_authors', {}).items()
-                    }
-                else:
-                    # Unknown format; reset safely
-                    self.processed_tweets = set()
-                    self.allowed_authors = {}
+            if isinstance(data, list):
+                self.processed = {str(t) for t in data}
+                self.allowed_authors = {}
+            elif isinstance(data, dict):
+                self.processed = {str(t) for t in data.get("processed_tweets", [])}
+                self.allowed_authors = {
+                    str(k): str(v) for k, v in data.get("allowed_authors", {}).items()
+                }
         except FileNotFoundError:
-            self.processed_tweets = set()
-            self.allowed_authors = {}
+            pass
 
     def save(self):
-        with open(self.filename, 'w') as f:
-            json.dump({
-                'processed_tweets': list(self.processed_tweets),
-                'allowed_authors': self.allowed_authors
-            }, f)
+        with open(Config.STATE_FILE, "w") as f:
+            json.dump(
+                {
+                    "processed_tweets": list(self.processed),
+                    "allowed_authors": self.allowed_authors,
+                },
+                f,
+            )
 
-    def is_processed(self, tweet_id):
-        return str(tweet_id) in self.processed_tweets
-    
+    def is_processed(self, tweet_id) -> bool:
+        return str(tweet_id) in self.processed
+
     def add_tweet(self, tweet_id):
-        self.processed_tweets.add(str(tweet_id))
+        self.processed.add(str(tweet_id))
 
-    def get_allowed_author(self, conversation_id: str):
-        return self.allowed_authors.get(str(conversation_id))
+    def get_allowed_author(self, convo_id) -> str | None:
+        return self.allowed_authors.get(str(convo_id))
 
-    def set_allowed_author(self, conversation_id: str, author_id: str):
-        self.allowed_authors[str(conversation_id)] = str(author_id) 
+    def set_allowed_author(self, convo_id, author_id):
+        self.allowed_authors[str(convo_id)] = str(author_id)

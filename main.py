@@ -1,27 +1,19 @@
+"""Entry point for Venice X Bot."""
 import logging
 from config import Config
 from bot import VeniceBot
 
-def setup_logging():
-    """Sets up centralized logging."""
-    # Set up logging
-    logging.basicConfig(
-        level=getattr(logging, Config.LOG_LEVEL),
-        format=Config.LOG_FORMAT
-    )
 
 def main():
-    """Main entry point for the bot."""
-    setup_logging()
-    
+    logging.basicConfig(level=getattr(logging, Config.LOG_LEVEL), format=Config.LOG_FORMAT)
     try:
         Config.validate()
-        bot = VeniceBot()
-        bot.run()
+        VeniceBot().run()
     except ValueError as e:
-        logging.critical(f"Configuration error: {e}")
+        logging.critical(f"Config error: {e}")
     except Exception as e:
-        logging.critical(f"An unexpected error occurred: {e}", exc_info=True)
+        logging.critical(f"Fatal: {e}", exc_info=True)
+
 
 if __name__ == "__main__":
-    main() 
+    main()

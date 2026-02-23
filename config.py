@@ -45,7 +45,24 @@ class Config:
     MAX_MENTIONS_PER_CHECK = 5
     MAX_TWEET_AGE_MINUTES = 60
     MAX_REPLIES_PER_HOUR = 30
-    TWEET_DELAY = 1              # pause between processing tweets
+    TWEET_DELAY = 2              # pause between processing tweets (increased)
+    
+    # ── Anti-Spam / Bot Protection ──────────────────────────────
+    # Known bot accounts to ignore (add usernames or user IDs)
+    BLOCKED_ACCOUNTS = {
+        "Butler_Agent",
+        "butler_agent",
+        # Add more bot usernames here as needed
+    }
+    
+    # Maximum replies to the same user per hour (prevents spam loops)
+    MAX_REPLIES_PER_USER_PER_HOUR = 3
+    
+    # Ignore accounts created less than N days ago (0 = disabled)
+    MIN_ACCOUNT_AGE_DAYS = 0
+    
+    # Only reply to verified accounts (False = reply to everyone)
+    VERIFIED_ONLY = False
 
     # ── Behaviour Flags ──────────────────────────────────────────
     USE_SESSION_START_CUTOFF = True

@@ -34,6 +34,11 @@ class VeniceBot:
         self.hourly_replies = 0
         self.hourly_reset = time.time()
         self._backoff = 1
+        
+        # Per-user reply tracking (anti-spam)
+        self.user_reply_counts: dict[str, int] = {}  # user_id → reply count this hour
+        self.user_reply_reset = time.time()
+        
         logger.info("Bot ready.")
 
     # ── Helpers ──────────────────────────────────────────────────
@@ -76,6 +81,34 @@ class VeniceBot:
             logger.info(f"Hourly reset ({self.hourly_replies} replies this hour)")
             self.hourly_replies = 0
             self.hourly_reset = time.time()
+        
+        # Also reset per-user counts
+        if time.time() - self.user_reply_reset >= 3600:
+            self.user_reply_counts = {}
+            self.user_reply_reset = time.time()
+    
+    def _is_blocked_account(self, author) -> bool:
+        """Check if author is a blocked bot/spam account."""
+        if not author:
+            return False
+        username = getattr(author, "username", None)
+        if username and username.lower() in {b.lower() for b in Config.BLOCKED_ACCOUNTS}:
+            logger.info(f"Blocked account ignored: @{username}")
+            return True
+        return False
+    
+    def _user_reply_limit_reached(self, user_id: str) -> bool:
+        """Check if we've hit the per-user reply limit."""
+        count = self.user_reply_counts.get(str(user_id), 0)
+        if count >= Config.MAX_REPLIES_PER_USER_PER_HOUR:
+            logger.info(f"Per-user limit reached for {user_id} ({count} replies this hour)")
+            return True
+        return False
+    
+    def _increment_user_replies(self, user_id: str):
+        """Track reply to this user."""
+        uid = str(user_id)
+        self.user_reply_counts[uid] = self.user_reply_counts.get(uid, 0) + 1
 
     def _tweet_age_ok(self, tweet) -> bool:
         """Return True if tweet is recent enough to reply to."""
@@ -207,6 +240,22 @@ class VeniceBot:
             self.state.add_tweet(tweet.id)
             return
 
+        # ── Anti-spam checks ──
+        # 1. Blocked accounts (known bots)
+        if self._is_blocked_account(author):
+            self.state.add_tweet(tweet.id)
+            return
+        
+        # 2. Per-user rate limit
+        if self._user_reply_limit_reached(tweet.author_id):
+            self.state.add_tweet(tweet.id)
+            return
+        
+        # 3. Verified-only mode (optional)
+        if Config.VERIFIED_ONLY and not getattr(author, "verified", False):
+            self.state.add_tweet(tweet.id)
+            return
+
         # Enforce single-author conversations
         allowed = self.state.get_allowed_author(tweet.conversation_id)
         if allowed and str(tweet.author_id) != str(allowed):
@@ -255,10 +304,11 @@ class VeniceBot:
             resp = reply_to_tweet(self.client, tweet.id, final)
             if resp:
                 self.hourly_replies += 1
+                self._increment_user_replies(tweet.author_id)
                 if not self.state.get_allowed_author(tweet.conversation_id):
                     self.state.set_allowed_author(tweet.conversation_id, tweet.author_id)
                 self.state.add_tweet(tweet.id)
-                logger.info(f"✅ Replied to tweet {tweet.id}")
+                logger.info(f"Replied to tweet {tweet.id} (user {tweet.author_id}: {self.user_reply_counts.get(str(tweet.author_id), 0)} this hour)")
             else:
                 logger.warning(f"Reply returned None for tweet {tweet.id}")
         except tweepy.errors.TooManyRequests as e:

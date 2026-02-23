@@ -1,6 +1,6 @@
 # Venice X Bot (@venice_mind)
 
-A Twitter bot powered by Venice AI with a Grok-style personality — witty, direct, uncensored.
+A Twitter bot powered by Venice AI — witty, direct, uncensored.
 
 ## Features
 

@@ -40,12 +40,12 @@ class Config:
         return cls.CHAR_LIMIT_PREMIUM if cls.X_PREMIUM_ENABLED else cls.CHAR_LIMIT_STANDARD
 
     # ── Timing & Rate Limits ─────────────────────────────────────
-    CHECK_INTERVAL = 60          # seconds between mention checks
-    MIN_CHECK_INTERVAL = 90      # hard minimum between API calls
-    MAX_MENTIONS_PER_CHECK = 5
+    CHECK_INTERVAL = 120         # seconds between mention checks (was 60)
+    MIN_CHECK_INTERVAL = 180     # hard minimum between API calls (was 90)
+    MAX_MENTIONS_PER_CHECK = 3   # reduced from 5
     MAX_TWEET_AGE_MINUTES = 60
-    MAX_REPLIES_PER_HOUR = 30
-    TWEET_DELAY = 2              # pause between processing tweets (increased)
+    MAX_REPLIES_PER_HOUR = 15    # reduced from 30 (safer)
+    TWEET_DELAY = 5              # pause between processing tweets (was 2)
     
     # ── Anti-Spam / Bot Protection ──────────────────────────────
     # Known bot accounts to ignore (add usernames or user IDs)

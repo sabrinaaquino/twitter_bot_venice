@@ -91,7 +91,7 @@ def _call_venice(
         "venice_parameters": _venice_params(urls, force_search=force_search),
     }
     try:
-        r = requests.post(Config.VENICE_URL, json=payload, headers=_HEADERS, timeout=90)
+        r = requests.post(Config.VENICE_URL, json=payload, headers=_HEADERS, timeout=120)
         r.raise_for_status()
         text = r.json()["choices"][0]["message"]["content"].strip()
         return _strip_refs(text)

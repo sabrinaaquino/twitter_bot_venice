@@ -14,6 +14,8 @@ from safety import (
     build_url_safety_context,
     scan_output,
     get_scam_warning_reply,
+    get_injection_warning_reply,
+    screen_input_for_injection,
     is_censored,
 )
 
@@ -120,11 +122,21 @@ def analyse(
       3. If vision and Kimi fails → Qwen3-VL (vision fallback)
       4. Last resort → Venice Uncensored
 
-    SAFETY: URLs are pre-screened. Suspicious/blocked URLs are NOT scraped —
-    instead the AI is told they're unverified/scam so it can warn the user.
+    SAFETY:
+    - INPUT PRE-SCREENING: Token creation injection attempts are blocked immediately
+    - URLs are pre-screened. Suspicious/blocked URLs are NOT scraped —
+      instead the AI is told they're unverified/scam so it can warn the user.
     """
     char_limit = Config.char_limit()
     has_image = bool(image_bytes or image_url)
+
+    # ── TOKEN CREATION INJECTION SCREENING ──
+    # Check BOTH query and context for injection attempts
+    full_text = f"{query} {context or ''}"
+    is_safe, reason, signals = screen_input_for_injection(full_text)
+    if not is_safe:
+        logger.warning(f"🚫 Input blocked (injection): {reason}")
+        return get_injection_warning_reply(signals)
 
     # ── URL SAFETY SCREENING ──
     raw_urls = urls or []
@@ -299,6 +311,9 @@ def craft_tweet(
     is_safe, reason = scan_output(result, context_urls)
     if not is_safe:
         logger.warning(f"🚨 Final reply blocked: {reason}")
+        # Use appropriate warning based on what was detected
+        if any(kw in reason.lower() for kw in ("token", "fee", "wallet", "ticker")):
+            return get_injection_warning_reply()
         return get_scam_warning_reply()
 
     return result

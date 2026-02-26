@@ -346,7 +346,13 @@ def classify_url(url: str) -> str:
 def screen_urls(urls: List[str]) -> Tuple[List[str], List[str], List[str]]:
     """
     Screen a list of URLs. Returns (safe_urls, suspicious_urls, blocked_urls).
-    Safe URLs are passed to the AI. Suspicious/blocked URLs are flagged in context.
+    
+    - Safe: official Venice domains, passed to AI for scraping
+    - Suspicious: Venice lookalikes or scam patterns, AI will warn user
+    - Blocked: known scam domains, AI will refuse
+    
+    Unknown URLs (random websites unrelated to Venice) are treated as safe
+    to scrape — we only warn about URLs that look like Venice impersonation.
     """
     safe = []
     suspicious = []
@@ -361,10 +367,11 @@ def screen_urls(urls: List[str]) -> Tuple[List[str], List[str], List[str]]:
             logger.warning(f"🚫 BLOCKED URL: {url}")
         elif cls == "suspicious":
             suspicious.append(url)
-            logger.warning(f"⚠️ SUSPICIOUS URL: {url}")
+            logger.warning(f"⚠️ SUSPICIOUS URL (Venice lookalike or scam pattern): {url}")
         else:
-            # Unknown — don't scrape it, but inform the AI about it
-            suspicious.append(url)
+            # Unknown URLs that don't look like Venice impersonation are fine
+            # We allow scraping them normally — no need to warn the user
+            safe.append(url)
 
     return safe, suspicious, blocked
 
@@ -375,23 +382,26 @@ def build_url_safety_context(
     """
     Build a context string that tells the AI about URL classifications.
     This is injected into the user message so the model knows what's safe.
+    
+    NOTE: Only suspicious/blocked URLs get warnings. Random websites that
+    have nothing to do with Venice should NOT trigger warnings.
     """
     parts = []
 
-    if safe:
-        parts.append("TRUSTED LINKS (official/verified):\n" + "\n".join(safe))
+    # Don't add context for safe URLs — they're fine, no need to mention them
 
     if suspicious:
         parts.append(
-            "[UNVERIFIED/SUSPICIOUS LINKS] (DO NOT endorse these as official, "
-            "DO NOT say they are from Venice AI, WARN the user if they look like scams):\n"
+            "[VENICE IMPERSONATION WARNING] These URLs look like they are trying to "
+            "impersonate Venice AI (lookalike domains or scam patterns). "
+            "WARN the user these are NOT official Venice AI:\n"
             + "\n".join(suspicious)
         )
 
     if blocked:
         parts.append(
-            "🚫 KNOWN SCAM LINKS (these are confirmed phishing — "
-            "WARN the user these are dangerous):\n"
+            "🚫 [KNOWN SCAM] These are confirmed phishing sites impersonating Venice AI. "
+            "WARN the user these are dangerous:\n"
             + "\n".join(blocked)
         )
 

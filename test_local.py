@@ -412,6 +412,11 @@ def main():
     results.append(("Fresh Data Detection", test_fresh_data_detection()))
     results.append(("Censorship Detection", test_safety_censorship_detection()))
     results.append(("Output Scanning", test_safety_output_scanning()))
+    results.append(("Fetch Validation", test_fetch_validation()))
+    results.append(("Relevant FAQs", test_relevant_faqs()))
+    results.append(("Model Summary", test_model_summary()))
+    results.append(("Topic Detection", test_topic_detection()))
+    results.append(("Prompt No Stale Facts", test_prompt_no_stale_facts()))
 
     # Run live tests (need API key) — skip if --offline-only
     if not offline_only:

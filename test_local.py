@@ -33,7 +33,7 @@ def test_safety_url_classification():
         ("https://venice.ai", "trusted"),
         ("https://app.venice.ai/chat", "trusted"),
         ("https://docs.venice.ai/api", "trusted"),
-        ("https://x.com/venice_ai", "trusted"),
+        ("https://x.com/askvenice", "trusted"),
         ("https://etherscan.io/address/0x123", "trusted"),
         ("https://vvvevent.com/claim", "blocked"),
         ("https://venice-ai.com", "blocked"),

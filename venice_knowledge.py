@@ -111,9 +111,9 @@ def summarize_models(models, limit=30):
     """One compact line per model: name (id) - ctx - capabilities - price - type."""
     lines = []
     for m in models[:limit]:
-        spec = m.get("model_spec", {})
-        caps = spec.get("capabilities", {})
-        pricing = spec.get("pricing", {})
+        spec = m.get("model_spec") or {}
+        caps = spec.get("capabilities") or {}
+        pricing = spec.get("pricing") or {}
         ctx = m.get("context_length") or spec.get("availableContextTokens") or 0
         flags = [
             name for key, name in (
@@ -123,14 +123,19 @@ def summarize_models(models, limit=30):
                 ("supportsWebSearch", "web"),
             ) if caps.get(key)
         ]
-        in_usd = pricing.get("input", {}).get("usd")
-        out_usd = pricing.get("output", {}).get("usd")
+        in_usd = (pricing.get("input") or {}).get("usd")
+        out_usd = (pricing.get("output") or {}).get("usd")
         price = f"${in_usd}/${out_usd} per 1M tok" if in_usd is not None else "price n/a"
         # FUTURE TODO: once Venice model landing pages are live, append each model's
         # landing-page URL here and update ANALYST_PROMPT to instruct the bot to link
         # that page in any response that names a specific model.
-        lines.append(
-            f"- {spec.get('name') or m.get('id')} ({m.get('id')}) - "
-            f"{ctx // 1000}K ctx - {', '.join(flags) or 'text'} - {price} - type={m.get('type')}"
-        )
+        parts = [f"- {spec.get('name') or m.get('id')} ({m.get('id')})"]
+        if ctx:
+            parts.append(f"{ctx // 1000}K ctx")
+        parts.append(", ".join(flags) or "text")
+        parts.append(price)
+        parts.append(f"type={m.get('type')}")
+        lines.append(" - ".join(parts))
+    if len(models) > limit:
+        lines.append(f"...and {len(models) - limit} more models (ask about a specific model or type for details)")
     return "\n".join(lines)

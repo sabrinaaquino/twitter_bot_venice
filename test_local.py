@@ -288,6 +288,29 @@ def test_fetch_validation():
     return failed == 0
 
 
+def test_relevant_faqs():
+    """relevant_faqs surfaces the correct, accurate DIEM answer."""
+    print("\n" + "=" * 60)
+    print("TEST: Relevant FAQ Retrieval")
+    print("=" * 60)
+    from venice_knowledge import relevant_faqs
+
+    hits = relevant_faqs("what is diem and can I trade it?")
+    joined = "\n".join(hits).lower()
+    checks = [
+        ("returns at least one FAQ", len(hits) >= 1),
+        ("mentions ERC-20 / tokenized compute", "erc-20" in joined or "tokenized compute" in joined),
+        ("does NOT claim non-transferable", "non-transferable" not in joined),
+    ]
+    passed = failed = 0
+    for label, ok in checks:
+        passed += ok
+        failed += not ok
+        print(f"  {'PASS' if ok else 'FAIL'}: {label}")
+    print(f"\n  Results: {passed} passed, {failed} failed")
+    return failed == 0
+
+
 def main():
     print("=" * 60)
     print("VENICE X BOT - LOCAL TEST SUITE")

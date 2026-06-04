@@ -311,6 +311,30 @@ def test_relevant_faqs():
     return failed == 0
 
 
+def test_model_summary():
+    """get_models returns models (snapshot fallback OK) and summarize formats them."""
+    print("\n" + "=" * 60)
+    print("TEST: Model List + Summary")
+    print("=" * 60)
+    from venice_knowledge import get_models, summarize_models
+
+    models = get_models()
+    summary = summarize_models(models)
+    checks = [
+        ("get_models returns a non-empty list", isinstance(models, list) and len(models) > 0),
+        ("each model has an id", all(m.get("id") for m in models)),
+        ("summary is non-empty text", isinstance(summary, str) and len(summary) > 0),
+        ("summary lines carry ctx + type", "ctx" in summary and "type=" in summary),
+    ]
+    passed = failed = 0
+    for label, ok in checks:
+        passed += ok
+        failed += not ok
+        print(f"  {'PASS' if ok else 'FAIL'}: {label}")
+    print(f"\n  Results: {passed} passed, {failed} failed")
+    return failed == 0
+
+
 def main():
     print("=" * 60)
     print("VENICE X BOT - LOCAL TEST SUITE")

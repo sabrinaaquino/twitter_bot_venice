@@ -60,3 +60,77 @@ def relevant_faqs(query, context=None, limit=4):
             scored.append((score, item))
     scored.sort(key=lambda x: x[0], reverse=True)
     return [f"Q: {it['title']}\nA: {it['markdown']}" for _, it in scored[:limit]]
+
+
+# ── Models (live API, 6h TTL, snapshot fallback) ─────────────
+_models_cache = {"data": None, "ts": 0.0}
+
+
+def _load_models_snapshot():
+    try:
+        with open(os.path.join(_DIR, Config.VENICE_MODELS_FILE), encoding="utf-8") as f:
+            return json.load(f).get("data", [])
+    except Exception as e:
+        logger.warning(f"Models snapshot unavailable ({e})")
+        return []
+
+
+def get_models(type=None):
+    """Live model list with a 6h TTL cache; falls back to the committed snapshot.
+
+    Pass `type` (e.g. "text", "image", "video") to filter; None returns all.
+    """
+    now = time.time()
+    fresh = _models_cache["data"] is not None and (
+        now - _models_cache["ts"] <= Config.VENICE_MODELS_TTL_SECONDS
+    )
+    if not fresh:
+        try:
+            r = requests.get(
+                Config.VENICE_MODELS_URL + "?type=all",
+                headers={"Authorization": f"Bearer {Config.VENICE_API_KEY}"},
+                timeout=15,
+            )
+            r.raise_for_status()
+            data = r.json().get("data", [])
+            if not data:
+                raise ValueError("empty model list")
+        except Exception as e:
+            logger.warning(f"Live models fetch failed ({e}); using snapshot")
+            data = _load_models_snapshot()
+        _models_cache["data"] = data
+        _models_cache["ts"] = now  # cache even failures to avoid hammering
+
+    data = _models_cache["data"] or []
+    if type:
+        data = [m for m in data if m.get("type") == type]
+    return data
+
+
+def summarize_models(models, limit=30):
+    """One compact line per model: name (id) - ctx - capabilities - price - type."""
+    lines = []
+    for m in models[:limit]:
+        spec = m.get("model_spec", {})
+        caps = spec.get("capabilities", {})
+        pricing = spec.get("pricing", {})
+        ctx = m.get("context_length") or spec.get("availableContextTokens") or 0
+        flags = [
+            name for key, name in (
+                ("supportsVision", "vision"),
+                ("supportsReasoning", "reasoning"),
+                ("supportsFunctionCalling", "functions"),
+                ("supportsWebSearch", "web"),
+            ) if caps.get(key)
+        ]
+        in_usd = pricing.get("input", {}).get("usd")
+        out_usd = pricing.get("output", {}).get("usd")
+        price = f"${in_usd}/${out_usd} per 1M tok" if in_usd is not None else "price n/a"
+        # FUTURE TODO: once Venice model landing pages are live, append each model's
+        # landing-page URL here and update ANALYST_PROMPT to instruct the bot to link
+        # that page in any response that names a specific model.
+        lines.append(
+            f"- {spec.get('name') or m.get('id')} ({m.get('id')}) - "
+            f"{ctx // 1000}K ctx - {', '.join(flags) or 'text'} - {price} - type={m.get('type')}"
+        )
+    return "\n".join(lines)

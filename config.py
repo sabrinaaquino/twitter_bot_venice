@@ -156,6 +156,7 @@ OFFICIAL VENICE SOCIALS:
 - Twitter/X: @AskVenice (this is the ONLY official Venice AI Twitter account)
 - Discord: discord.gg/askvenice
 - GitHub: github.com/veniceai
+- API Docs: docs.venice.ai/overview/about-venice
 
 DOMAIN VERIFICATION RULES:
 - ANY domain that is NOT venice.ai or its subdomains is NOT official Venice AI

@@ -7,10 +7,6 @@ Run manually or via cron:
 Writes venice_faqs.json and venice_models.json to the repo root. On failure
 for a given source, logs to stderr and leaves the existing file untouched
 (exits non-zero so cron can alert).
-
-The models snapshot is slimmed to the fields the bot actually reads and written
-one model per line (sorted by id), keeping the committed file small and its diffs
-reviewable. The live Venice models API stays the primary source at runtime.
 """
 import json
 import os
@@ -20,16 +16,18 @@ import requests
 
 try:
     from dotenv import load_dotenv
-except ImportError:  # dotenv is a project dep; degrade gracefully if absent
+except ImportError:  # dotenv is a project dep, but don't hard-fail the script without it
     load_dotenv = None
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if load_dotenv:
-    load_dotenv(os.path.join(ROOT, ".env"))  # pick up VENICE_API_KEY when present
+    load_dotenv(os.path.join(ROOT, ".env"))  # so VENICE_API_KEY is picked up when present
 FAQ_URL = "https://venice.ai/api/faqs"
 MODELS_URL = "https://api.venice.ai/api/v1/models?type=all"
 
-# Only these model fields are consumed by venice_knowledge (get_models / summarize_models).
+# Only these model fields are consumed by the bot (venice_knowledge.summarize_models /
+# get_models). We persist a slimmed snapshot to keep the committed file small and its
+# diffs reviewable; the live API remains the primary source at runtime.
 _CAP_KEYS = ("supportsVision", "supportsReasoning", "supportsFunctionCalling", "supportsWebSearch")
 
 
@@ -37,18 +35,6 @@ def _fetch_json(url, headers=None):
     r = requests.get(url, headers=headers or {}, timeout=30)
     r.raise_for_status()
     return r.json()
-
-
-def _valid_faqs(d):
-    return (
-        isinstance(d, dict)
-        and isinstance(d.get("locales"), dict)
-        and "en" in d["locales"]
-    )
-
-
-def _valid_models(d):
-    return isinstance(d, dict) and isinstance(d.get("data"), list) and len(d["data"]) > 0
 
 
 def _slim_model(m):
@@ -81,8 +67,24 @@ def _slim_models_payload(raw):
     return {"object": raw.get("object", "list"), "type": raw.get("type", "all"), "data": models}
 
 
+def _valid_faqs(d):
+    return (
+        isinstance(d, dict)
+        and isinstance(d.get("locales"), dict)
+        and "en" in d["locales"]
+    )
+
+
+def _valid_models(d):
+    return isinstance(d, dict) and isinstance(d.get("data"), list) and len(d["data"]) > 0
+
+
 def _dump_models_str(payload):
-    """Serialize with one model per line (compact per-model) for small, reviewable diffs."""
+    """Serialize the models snapshot with one model per line (compact per-model).
+
+    Sorted by id upstream, this yields a small file whose diffs show exactly which
+    models changed (one line each) instead of thousands of pretty-printed lines.
+    """
     model_lines = ",\n".join(
         "    " + json.dumps(m, ensure_ascii=False, separators=(",", ":"))
         for m in payload.get("data", [])
@@ -123,7 +125,7 @@ def main():
 
     try:
         slim = _slim_models_payload(_fetch_json(MODELS_URL, headers))
-        _write_if_valid("venice_models.json", slim, _valid_models, serialize=_dump_models_str)
+        _write_if_valid("venice_models.json", slim, _valid_models)
         print(f"OK: venice_models.json updated ({len(slim['data'])} models, slimmed)")
     except Exception as e:
         print(f"ERROR: models fetch failed ({e}); keeping existing file", file=sys.stderr)

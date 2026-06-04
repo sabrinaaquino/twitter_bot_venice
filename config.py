@@ -20,6 +20,13 @@ class Config:
     VENICE_API_KEY = os.getenv("VENICE_API_KEY")
     VENICE_URL = "https://api.venice.ai/api/v1/chat/completions"
 
+    # ── Venice Knowledge Sources ─────────────────────────────────
+    VENICE_FAQ_URL = "https://venice.ai/api/faqs"
+    VENICE_MODELS_URL = "https://api.venice.ai/api/v1/models"
+    VENICE_FAQ_FILE = "venice_faqs.json"
+    VENICE_MODELS_FILE = "venice_models.json"
+    VENICE_MODELS_TTL_SECONDS = 6 * 3600  # live model data cached 6h
+
     # ── Model Hierarchy ──────────────────────────────────────────
     # Primary: Kimi K2.5 — smartest, native multimodal (text + vision), 256K ctx
     MODEL_PRIMARY = "kimi-k2-5"                         # $0.75/$3.75 per 1M tok, private

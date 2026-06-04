@@ -361,6 +361,38 @@ def test_topic_detection():
     return failed == 0
 
 
+def test_prompt_no_stale_facts():
+    """ANALYST_PROMPT must not carry the old wrong/volatile Venice facts."""
+    print("\n" + "=" * 60)
+    print("TEST: Prompt Has No Stale Venice Facts")
+    print("=" * 60)
+    p = Config.ANALYST_PROMPT
+    banned = [
+        "non-transferable",          # DIEM IS transferable
+        "earn Diem daily",           # DIEM is minted, not earned daily
+        "Total supply: inflationary",  # volatile tokenomics dump
+        "GLM 4.6: default model",    # hardcoded model list (drifts)
+        "Kimi K2.5: trillion-param", # hardcoded model spec (drifts)
+    ]
+    must_have = [
+        "trust",                     # defers to authoritative facts/search
+        "DIEM",                      # accurate essentials baseline present
+    ]
+    passed = failed = 0
+    for s in banned:
+        ok = s not in p
+        passed += ok
+        failed += not ok
+        print(f"  {'PASS' if ok else 'FAIL'}: banned string absent: {s!r}")
+    for s in must_have:
+        ok = s.lower() in p.lower()
+        passed += ok
+        failed += not ok
+        print(f"  {'PASS' if ok else 'FAIL'}: required string present: {s!r}")
+    print(f"\n  Results: {passed} passed, {failed} failed")
+    return failed == 0
+
+
 def main():
     print("=" * 60)
     print("VENICE X BOT - LOCAL TEST SUITE")

@@ -335,6 +335,32 @@ def test_model_summary():
     return failed == 0
 
 
+def test_topic_detection():
+    """Venice-topic and model-question detectors fire on the right queries."""
+    print("\n" + "=" * 60)
+    print("TEST: Venice Topic / Model Question Detection")
+    print("=" * 60)
+    from venice_api import _is_venice_topic, _is_model_question
+
+    cases = [
+        (_is_venice_topic, "What is DIEM?", True),
+        (_is_venice_topic, "How does VVV staking work?", True),
+        (_is_venice_topic, "How do I make pasta?", False),
+        (_is_model_question, "Which Venice model has the biggest context window?", True),
+        (_is_model_question, "Does Venice have a vision model?", True),
+        (_is_model_question, "What is 2 + 2?", False),
+    ]
+    passed = failed = 0
+    for fn, q, expected in cases:
+        got = fn(q)
+        ok = got == expected
+        passed += ok
+        failed += not ok
+        print(f"  {'PASS' if ok else 'FAIL'}: {fn.__name__}('{q[:32]}') -> {got} (want {expected})")
+    print(f"\n  Results: {passed} passed, {failed} failed")
+    return failed == 0
+
+
 def main():
     print("=" * 60)
     print("VENICE X BOT - LOCAL TEST SUITE")

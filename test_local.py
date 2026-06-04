@@ -262,6 +262,32 @@ def test_scam_scenario():
         return False
 
 
+def test_fetch_validation():
+    """Refresh-script validators accept good payloads, reject bad ones."""
+    print("\n" + "=" * 60)
+    print("TEST: Fetch Script Validation")
+    print("=" * 60)
+    from scripts.fetch_venice_data import _valid_faqs, _valid_models
+
+    cases = [
+        (_valid_faqs, {"locales": {"en": {"categories": []}}}, True),
+        (_valid_faqs, {"nope": 1}, False),
+        (_valid_faqs, "not a dict", False),
+        (_valid_models, {"data": [{"id": "x"}]}, True),
+        (_valid_models, {"data": []}, False),
+        (_valid_models, {"data": "x"}, False),
+    ]
+    passed = failed = 0
+    for fn, payload, expected in cases:
+        got = bool(fn(payload))
+        ok = got == expected
+        passed += ok
+        failed += not ok
+        print(f"  {'PASS' if ok else 'FAIL'}: {fn.__name__}({str(payload)[:30]}) -> {got} (want {expected})")
+    print(f"\n  Results: {passed} passed, {failed} failed")
+    return failed == 0
+
+
 def main():
     print("=" * 60)
     print("VENICE X BOT - LOCAL TEST SUITE")

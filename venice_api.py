@@ -93,7 +93,10 @@ def _call_venice(
         "venice_parameters": _venice_params(urls, force_search=force_search),
     }
     try:
-        r = requests.post(Config.VENICE_URL, json=payload, headers=_HEADERS, timeout=120)
+        r = requests.post(
+            Config.VENICE_URL, json=payload, headers=_HEADERS,
+            timeout=Config.VENICE_REQUEST_TIMEOUT_SECONDS,
+        )
         r.raise_for_status()
         text = r.json()["choices"][0]["message"]["content"].strip()
         return _strip_refs(text)
@@ -160,12 +163,17 @@ def analyse(
     if url_context:
         msg += f"\n\n{url_context}"
 
+    safe_limit = max(1, char_limit - 15)
     msg += (
         f"\n\nOUTPUT (strict):\n"
         f"[FINAL_REPLY]\n"
-        f"<your tweet-ready reply, ≤{char_limit} chars, plain text, no greetings/hashtags/markdown>\n"
+        f"<your tweet-ready reply, plain text, no greetings/hashtags/markdown>\n"
         f"[/FINAL_REPLY]\n\n"
-        f"[NOTES]\n(optional) key facts/sources used\n[/NOTES]"
+        f"[NOTES]\n(optional) key facts/sources used\n[/NOTES]\n\n"
+        f"HARD LENGTH LIMIT: the text inside [FINAL_REPLY] MUST be {char_limit} characters "
+        f"or fewer. Count the characters before finishing. Aim for {safe_limit} or fewer for "
+        f"a safety margin. If your draft runs long, tighten and cut words until it fits — "
+        f"never exceed {char_limit}. Going over forces a wasteful rewrite, so fit it the first time."
     )
 
     # ── Build multimodal content if image present ──

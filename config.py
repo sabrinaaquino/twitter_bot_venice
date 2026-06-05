@@ -19,6 +19,10 @@ class Config:
     # ── Venice API ───────────────────────────────────────────────
     VENICE_API_KEY = os.getenv("VENICE_API_KEY")
     VENICE_URL = "https://api.venice.ai/api/v1/chat/completions"
+    # Per-request timeout (seconds). Generous on purpose: prefer letting the
+    # smartest model (Kimi) finish its occasional slow tail over aborting and
+    # degrading to a weaker fallback model. Quality > latency.
+    VENICE_REQUEST_TIMEOUT_SECONDS = 240
 
     # ── Venice Knowledge Sources ─────────────────────────────────
     VENICE_FAQ_URL = "https://venice.ai/api/faqs"

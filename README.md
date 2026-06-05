@@ -33,6 +33,18 @@ python reply_to_tweet.py https://x.com/user/status/1234567890
 python mock_test.py
 ```
 
+## Refreshing Venice knowledge
+
+The bot answers Venice questions from a committed FAQ snapshot and the live
+models API. Re-sync the snapshots whenever Venice updates its FAQ or models:
+
+```bash
+python scripts/fetch_venice_data.py   # rewrites venice_faqs.json + venice_models.json
+```
+
+Run it manually or via cron. Model data is also fetched live at runtime (6h
+cache); the snapshot is the offline fallback. Commit the updated JSON files.
+
 ## Project Structure
 
 ```

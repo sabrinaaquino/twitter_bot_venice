@@ -33,7 +33,7 @@ def test_safety_url_classification():
         ("https://venice.ai", "trusted"),
         ("https://app.venice.ai/chat", "trusted"),
         ("https://docs.venice.ai/api", "trusted"),
-        ("https://x.com/venice_ai", "trusted"),
+        ("https://x.com/askvenice", "trusted"),
         ("https://etherscan.io/address/0x123", "trusted"),
         ("https://vvvevent.com/claim", "blocked"),
         ("https://venice-ai.com", "blocked"),
@@ -262,6 +262,137 @@ def test_scam_scenario():
         return False
 
 
+def test_fetch_validation():
+    """Refresh-script validators accept good payloads, reject bad ones."""
+    print("\n" + "=" * 60)
+    print("TEST: Fetch Script Validation")
+    print("=" * 60)
+    from scripts.fetch_venice_data import _valid_faqs, _valid_models
+
+    cases = [
+        (_valid_faqs, {"locales": {"en": {"categories": []}}}, True),
+        (_valid_faqs, {"nope": 1}, False),
+        (_valid_faqs, "not a dict", False),
+        (_valid_models, {"data": [{"id": "x"}]}, True),
+        (_valid_models, {"data": []}, False),
+        (_valid_models, {"data": "x"}, False),
+    ]
+    passed = failed = 0
+    for fn, payload, expected in cases:
+        got = bool(fn(payload))
+        ok = got == expected
+        passed += ok
+        failed += not ok
+        print(f"  {'PASS' if ok else 'FAIL'}: {fn.__name__}({str(payload)[:30]}) -> {got} (want {expected})")
+    print(f"\n  Results: {passed} passed, {failed} failed")
+    return failed == 0
+
+
+def test_relevant_faqs():
+    """relevant_faqs surfaces the correct, accurate DIEM answer."""
+    print("\n" + "=" * 60)
+    print("TEST: Relevant FAQ Retrieval")
+    print("=" * 60)
+    from venice_knowledge import relevant_faqs
+
+    hits = relevant_faqs("what is diem and can I trade it?")
+    joined = "\n".join(hits).lower()
+    checks = [
+        ("returns at least one FAQ", len(hits) >= 1),
+        ("mentions ERC-20 / tokenized compute", "erc-20" in joined or "tokenized compute" in joined),
+        ("does NOT claim non-transferable", "non-transferable" not in joined),
+    ]
+    passed = failed = 0
+    for label, ok in checks:
+        passed += ok
+        failed += not ok
+        print(f"  {'PASS' if ok else 'FAIL'}: {label}")
+    print(f"\n  Results: {passed} passed, {failed} failed")
+    return failed == 0
+
+
+def test_model_summary():
+    """get_models returns models (snapshot fallback OK) and summarize formats them."""
+    print("\n" + "=" * 60)
+    print("TEST: Model List + Summary")
+    print("=" * 60)
+    from venice_knowledge import get_models, summarize_models
+
+    models = get_models()
+    summary = summarize_models(models)
+    checks = [
+        ("get_models returns a non-empty list", isinstance(models, list) and len(models) > 0),
+        ("each model has an id", all(m.get("id") for m in models)),
+        ("summary is non-empty text", isinstance(summary, str) and len(summary) > 0),
+        ("summary lines carry ctx + type", "ctx" in summary and "type=" in summary),
+    ]
+    passed = failed = 0
+    for label, ok in checks:
+        passed += ok
+        failed += not ok
+        print(f"  {'PASS' if ok else 'FAIL'}: {label}")
+    print(f"\n  Results: {passed} passed, {failed} failed")
+    return failed == 0
+
+
+def test_topic_detection():
+    """Venice-topic and model-question detectors fire on the right queries."""
+    print("\n" + "=" * 60)
+    print("TEST: Venice Topic / Model Question Detection")
+    print("=" * 60)
+    from venice_api import _is_venice_topic, _is_model_question
+
+    cases = [
+        (_is_venice_topic, "What is DIEM?", True),
+        (_is_venice_topic, "How does VVV staking work?", True),
+        (_is_venice_topic, "How do I make pasta?", False),
+        (_is_model_question, "Which Venice model has the biggest context window?", True),
+        (_is_model_question, "Does Venice have a vision model?", True),
+        (_is_model_question, "What is 2 + 2?", False),
+    ]
+    passed = failed = 0
+    for fn, q, expected in cases:
+        got = fn(q)
+        ok = got == expected
+        passed += ok
+        failed += not ok
+        print(f"  {'PASS' if ok else 'FAIL'}: {fn.__name__}('{q[:32]}') -> {got} (want {expected})")
+    print(f"\n  Results: {passed} passed, {failed} failed")
+    return failed == 0
+
+
+def test_prompt_no_stale_facts():
+    """ANALYST_PROMPT must not carry the old wrong/volatile Venice facts."""
+    print("\n" + "=" * 60)
+    print("TEST: Prompt Has No Stale Venice Facts")
+    print("=" * 60)
+    p = Config.ANALYST_PROMPT
+    banned = [
+        "non-transferable",          # DIEM IS transferable
+        "earn Diem daily",           # DIEM is minted, not earned daily
+        "Total supply: inflationary",  # volatile tokenomics dump
+        "GLM 4.6: default model",    # hardcoded model list (drifts)
+        "Kimi K2.5: trillion-param", # hardcoded model spec (drifts)
+    ]
+    must_have = [
+        "trust",                     # defers to authoritative facts/search
+        "DIEM",                      # accurate essentials baseline present
+    ]
+    passed = failed = 0
+    for s in banned:
+        ok = s not in p
+        passed += ok
+        failed += not ok
+        print(f"  {'PASS' if ok else 'FAIL'}: banned string absent: {s!r}")
+    for s in must_have:
+        ok = s.lower() in p.lower()
+        passed += ok
+        failed += not ok
+        print(f"  {'PASS' if ok else 'FAIL'}: required string present: {s!r}")
+    print(f"\n  Results: {passed} passed, {failed} failed")
+    return failed == 0
+
+
 def main():
     print("=" * 60)
     print("VENICE X BOT - LOCAL TEST SUITE")
@@ -281,6 +412,11 @@ def main():
     results.append(("Fresh Data Detection", test_fresh_data_detection()))
     results.append(("Censorship Detection", test_safety_censorship_detection()))
     results.append(("Output Scanning", test_safety_output_scanning()))
+    results.append(("Fetch Validation", test_fetch_validation()))
+    results.append(("Relevant FAQs", test_relevant_faqs()))
+    results.append(("Model Summary", test_model_summary()))
+    results.append(("Topic Detection", test_topic_detection()))
+    results.append(("Prompt No Stale Facts", test_prompt_no_stale_facts()))
 
     # Run live tests (need API key) — skip if --offline-only
     if not offline_only:

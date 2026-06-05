@@ -18,6 +18,7 @@ from safety import (
     screen_input_for_injection,
     is_censored,
 )
+from venice_knowledge import relevant_faqs, get_models, summarize_models
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,27 @@ def _needs_fresh_data(query: str) -> bool:
     """Check if the query likely needs live web data."""
     q_lower = query.lower()
     return any(kw in q_lower for kw in _FRESH_DATA_KEYWORDS)
+
+
+_VENICE_TOPIC_KEYWORDS = (
+    "venice", "vvv", "svvv", "diem", "stake", "staking", "tokenomics",
+    "token", "mint", "inference", "pro plan", "subscription", "api credit",
+)
+_MODEL_KEYWORDS = (
+    "model", "models", "context window", "context length", "vision",
+    "reasoning", "cheapest", "capabilit", "which model", "kimi", "glm",
+    "qwen", "uncensored", "multimodal",
+)
+
+
+def _is_venice_topic(text: str) -> bool:
+    t = text.lower()
+    return any(k in t for k in _VENICE_TOPIC_KEYWORDS)
+
+
+def _is_model_question(text: str) -> bool:
+    t = text.lower()
+    return any(k in t for k in _MODEL_KEYWORDS)
 
 
 def _venice_params(urls: Optional[List[str]] = None, force_search: bool = False) -> dict:
@@ -162,6 +184,24 @@ def analyse(
     url_context = build_url_safety_context(safe_urls, suspicious_urls, blocked_urls)
     if url_context:
         msg += f"\n\n{url_context}"
+
+    # ── Authoritative Venice knowledge injection ──
+    full_topic_text = f"{query} {context or ''}"
+    knowledge_parts = []
+    if _is_venice_topic(full_topic_text):
+        faqs = relevant_faqs(query, context)
+        if faqs:
+            knowledge_parts.append("FAQ:\n" + "\n\n".join(faqs))
+    if _is_model_question(full_topic_text):
+        models = get_models()
+        if models:
+            knowledge_parts.append("CURRENT VENICE MODELS:\n" + summarize_models(models))
+    if knowledge_parts:
+        msg += (
+            "\n\nAUTHORITATIVE VENICE FACTS (from venice.ai/faqs and the Venice "
+            "models API — trust these over your own knowledge):\n"
+            + "\n\n".join(knowledge_parts)
+        )
 
     safe_limit = max(1, char_limit - 15)
     msg += (

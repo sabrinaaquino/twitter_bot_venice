@@ -33,9 +33,9 @@ class Config:
 
     # ── Model Hierarchy ──────────────────────────────────────────
     # Primary: Kimi K2.5 — smartest, native multimodal (text + vision), 256K ctx
-    MODEL_PRIMARY = "kimi-k2-5"                         # $0.75/$3.75 per 1M tok, private
+    MODEL_PRIMARY = "kimi-k2-5"                         # $0.56/$3.50 per 1M tok, private
     # Uncensored fallback: GLM Heretic — used when primary self-censors
-    MODEL_UNCENSORED = "olafangensan-glm-4.7-flash-heretic"  # $0.14/$0.80 per 1M tok, private, 128K
+    MODEL_UNCENSORED = "olafangensan-glm-4.7-flash-heretic"  # $0.14/$0.80 per 1M tok, private, 200K
     # Vision fallback: Qwen3-VL — if Kimi can't handle a specific vision task
     MODEL_VISION_FALLBACK = "qwen3-vl-235b-a22b"       # $0.25/$1.50 per 1M tok, private, 256K
     # Last resort: Venice Uncensored 1.2 — cheap, uncensored (successor to the

@@ -14,6 +14,7 @@ from state import State
 from clients import get_twitter_client
 from twitter_client import get_mentions, reply_to_tweet, get_tweet_by_id
 from venice_api import analyse, craft_tweet
+from venice_knowledge import validate_configured_models
 from image_processor import process_tweet_media
 from utils import extract_urls_from_entities
 
@@ -28,6 +29,10 @@ class VeniceBot:
         self.client = get_twitter_client()
         self.bot_id = self._fetch_bot_id()
         self.session_start = datetime.now(timezone.utc)
+
+        # Surface any retired/renamed model IDs at boot (Plan 0001) — better a
+        # loud startup alert than silent per-reply degradation later.
+        validate_configured_models()
 
         # Rate-limit bookkeeping
         self.last_check = 0.0

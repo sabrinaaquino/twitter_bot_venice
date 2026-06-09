@@ -41,6 +41,19 @@ class Config:
     # Last resort: Venice Uncensored — cheap, small, uncensored
     MODEL_LAST_RESORT = "venice-uncensored"             # $0.20/$0.90 per 1M tok, private, 32K
 
+    @classmethod
+    def configured_models(cls) -> dict[str, str]:
+        """Map of role → model ID for every model the bot is wired to call.
+
+        Used at startup to validate these IDs against Venice's live model list
+        (see venice_knowledge.validate_configured_models)."""
+        return {
+            "MODEL_PRIMARY": cls.MODEL_PRIMARY,
+            "MODEL_UNCENSORED": cls.MODEL_UNCENSORED,
+            "MODEL_VISION_FALLBACK": cls.MODEL_VISION_FALLBACK,
+            "MODEL_LAST_RESORT": cls.MODEL_LAST_RESORT,
+        }
+
     # ── X Account ────────────────────────────────────────────────
     X_PREMIUM_ENABLED = os.getenv("X_PREMIUM_ENABLED", "false").lower() == "true"
     CHAR_LIMIT_PREMIUM = 25_000

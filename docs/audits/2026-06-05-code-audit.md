@@ -66,13 +66,23 @@ being left on the table.
 
 ---
 
-## Priority order for remediation
+## Remediation status
 
-1. **A — Silent model failure** (highest priority; safety/availability)
-2. **G — Untrack `state.json`** (cheap hygiene win, unblocks clean diffs)
-3. **B — Bounded, less-frequent state persistence**
-4. **C / D — Collapse the double AI call & cache thread context**
-5. **E — Mention pagination for bursts**
-6. **F — Better FAQ retrieval** (quality; larger effort)
+This audit is a **living, in-progress work plan**, not a one-off critique. Fixes
+land as small, focused, test-driven PRs in priority order. Status as of the
+latest update:
 
-Each gets its own plan in [`../plans/`](../plans/) as it's picked up.
+| # | Finding | Priority | Status |
+|---|---|---|---|
+| A | Silent model failure | Highest (safety/availability) | ✅ **Done** — startup model-availability validation + HTTP-error attribution (also fixed a live-broken model ID). See [plan 0001](../plans/0001-model-availability-alerting.md). |
+| G | `state.json` tracked despite `.gitignore` | Quick hygiene win | ✅ **Done** — untracked via `git rm --cached`. |
+| B | Unbounded / every-loop state persistence | Medium | ✅ **Done** — bounded, dirty-tracked `State`. |
+| C/D | Double AI call + thread context re-fetched every reply | Medium (cost/latency) | ⏳ **Planned** |
+| E | Only 5 mentions per check; bursts overflow | Medium | ⏳ **Planned** |
+| F | Keyword FAQ matching, not embeddings/RAG | Low (quality; larger effort) | ⏳ **Planned** |
+
+✅ done · ⏳ planned. Larger items get their own write-up in
+[`../plans/`](../plans/) as they're picked up.
+
+> A test framework (`pytest`) was added alongside this effort so each fix ships
+> with regression coverage. The done items above were all implemented test-first.

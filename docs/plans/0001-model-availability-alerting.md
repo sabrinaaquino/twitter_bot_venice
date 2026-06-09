@@ -1,8 +1,17 @@
 # Plan 0001 — Detect & alert on unavailable Venice models
 
-- **Status:** Proposed
+- **Status:** ✅ Done
 - **Addresses:** Audit finding **A** (silent model failure — highest priority)
 - **Date:** 2026-06-08
+
+> **Outcome:** Implemented test-first. `validate_configured_models()` runs at
+> startup and logs CRITICAL (primary) / ERROR (fallbacks) for any configured
+> model missing from Venice's live list, skipping cleanly when the list can't be
+> determined. `_call_venice` now classifies HTTP `401/402/404/429` so auth,
+> billing, and renamed-model errors are distinguishable in logs instead of
+> hiding behind the fallback cascade. The check immediately caught a real
+> regression: `MODEL_LAST_RESORT="venice-uncensored"` had been retired and was
+> silently 404ing — replaced with its successor `venice-uncensored-1-2`.
 
 ## The problem
 

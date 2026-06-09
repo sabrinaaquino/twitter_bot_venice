@@ -38,8 +38,9 @@ class Config:
     MODEL_UNCENSORED = "olafangensan-glm-4.7-flash-heretic"  # $0.14/$0.80 per 1M tok, private, 128K
     # Vision fallback: Qwen3-VL — if Kimi can't handle a specific vision task
     MODEL_VISION_FALLBACK = "qwen3-vl-235b-a22b"       # $0.25/$1.50 per 1M tok, private, 256K
-    # Last resort: Venice Uncensored — cheap, small, uncensored
-    MODEL_LAST_RESORT = "venice-uncensored"             # $0.20/$0.90 per 1M tok, private, 32K
+    # Last resort: Venice Uncensored 1.2 — cheap, uncensored (successor to the
+    # retired "venice-uncensored"; same price, 4x the context)
+    MODEL_LAST_RESORT = "venice-uncensored-1-2"         # $0.20/$0.90 per 1M tok, private, 128K
 
     @classmethod
     def configured_models(cls) -> dict[str, str]:

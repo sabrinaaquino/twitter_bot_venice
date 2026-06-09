@@ -13,12 +13,21 @@ A Twitter bot powered by Venice AI — witty, direct, uncensored.
 ## Quick Start
 
 ```bash
-cd venice-x-bot/twitter_bot_venice
-python -m venv venv && venv\Scripts\activate
+cd twitter_bot_venice
+python -m venv venv
+
+# Activate the virtualenv:
+source venv/bin/activate        # Linux / macOS
+# venv\Scripts\activate         # Windows (PowerShell/cmd)
+
 pip install -r requirements.txt
-cp env_example.txt .env   # fill in your keys
+cp env_example.txt .env   # then edit .env and fill in your keys
 python main.py
 ```
+
+> Requires Python 3.10+. Without valid keys in `.env`, `python main.py` exits
+> immediately with a clear `CRITICAL | Fatal: 401 Unauthorized` — that's
+> expected. To check the install without keys, run the offline tests below.
 
 ## Testing
 

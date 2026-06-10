@@ -26,6 +26,23 @@ from safety import (
 logger = logging.getLogger(__name__)
 
 
+def fit_to_limit(text: str, limit: int) -> str:
+    """Hard length backstop: guarantee len(text) <= limit, breaking on a sentence
+    boundary when one falls in the last ~30% (mirrors twitter_client.reply_to_tweet).
+
+    The agent's prompt already aims for the limit; this only fires on the rare
+    overshoot, so the reply on the agent path can never exceed the tweet limit.
+    """
+    if len(text) <= limit:
+        return text
+    head = text[: limit - 1]
+    for punct in (". ", "! ", "? "):
+        idx = head.rfind(punct)
+        if idx > limit * 0.7:
+            return text[: idx + 1]
+    return head.rstrip() + "…"
+
+
 @dataclass
 class AgentResult:
     """Outcome of a guarded agent reply.
@@ -93,6 +110,12 @@ async def agent_reply_async(
         if any(k in why.lower() for k in ("token", "fee", "wallet", "ticker")):
             return AgentResult(get_injection_warning_reply(), trip="injection")
         return AgentResult(get_scam_warning_reply(), trip="scam")
+
+    # ── POST-3: hard length backstop (safe to truncate scanned text) ──
+    char_limit = Config.char_limit()
+    if len(reply) > char_limit:
+        logger.info(f"Agent reply over limit ({len(reply)} > {char_limit}) — truncating")
+        reply = fit_to_limit(reply, char_limit)
 
     return AgentResult(reply, None)
 

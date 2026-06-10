@@ -35,6 +35,25 @@ def _save_note(observation: str) -> str:
     return "Saved."
 
 
+def knowledge_retrieve_tool(embed_model=None, storage_dir=None) -> FunctionTool:
+    """Knowledge-base lookup that returns SOURCE CHUNKS (not a pre-synthesized
+    answer) — the agent synthesizes once in its own final turn. Cheaper (one
+    fewer LLM call) and better grounded. Uses the shared knowledge.retrieve()."""
+    def venice_knowledge_search(query: str) -> str:
+        """Look up authoritative Venice facts from the official FAQ: VVV/sVVV/DIEM
+        tokenomics, staking, plans/pricing, models, API. Returns the most relevant
+        source snippets — base your answer on them, preferring them over memory."""
+        from knowledge import retrieve
+        chunks = retrieve(query, embed_model=embed_model, storage_dir=storage_dir)
+        if not chunks:
+            return "No matching Venice facts found."
+        return "\n\n".join(
+            f"[{i}] ({c['category']}) {c['text']}" for i, c in enumerate(chunks, 1)
+        )
+
+    return FunctionTool.from_defaults(fn=venice_knowledge_search, name="Venice_Knowledge_Base")
+
+
 def venice_search_tool() -> FunctionTool:
     return FunctionTool.from_defaults(fn=_venice_web_search, name="Venice_Web_Search")
 

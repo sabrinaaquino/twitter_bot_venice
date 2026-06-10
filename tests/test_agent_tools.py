@@ -28,3 +28,22 @@ def test_web_search_handles_empty_result(monkeypatch):
 def test_tool_names():
     assert venice_search_tool().metadata.name == "Venice_Web_Search"
     assert note_saver_tool().metadata.name == "Note_Saver"
+
+
+def test_knowledge_retrieve_tool_formats_chunks(monkeypatch):
+    from agent.tools import knowledge_retrieve_tool
+    fake_chunks = [
+        {"text": "Q: What is DIEM?\nA: compute unit", "score": 0.9, "category": "Token", "id": "faq-diem"},
+        {"text": "Q: What is VVV?\nA: utility token", "score": 0.8, "category": "Token", "id": "faq-vvv"},
+    ]
+    monkeypatch.setattr("knowledge.retrieve", lambda *a, **k: fake_chunks)
+    tool = knowledge_retrieve_tool()
+    assert tool.metadata.name == "Venice_Knowledge_Base"
+    out = tool.fn("what is diem?")
+    assert "[1] (Token)" in out and "compute unit" in out and "utility token" in out
+
+
+def test_knowledge_retrieve_tool_handles_empty(monkeypatch):
+    from agent.tools import knowledge_retrieve_tool
+    monkeypatch.setattr("knowledge.retrieve", lambda *a, **k: [])
+    assert "No matching" in knowledge_retrieve_tool().fn("nonsense")

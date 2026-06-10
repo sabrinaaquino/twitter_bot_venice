@@ -25,13 +25,12 @@ def _build_user_message(query: str, context: str | None) -> str:
 def build_agent(llm=None, tools=None, verbose=False):
     from llama_index.core.agent.workflow import ReActAgent
     from agent.llm import reasoning_llm
-    from agent.tools import venice_search_tool, note_saver_tool
-    from agent.knowledge_index import knowledge_query_engine_tool
+    from agent.tools import knowledge_retrieve_tool, venice_search_tool, note_saver_tool
 
     llm = llm or reasoning_llm()
     if tools is None:
         tools = [
-            knowledge_query_engine_tool(llm=llm),
+            knowledge_retrieve_tool(),   # returns source chunks; agent synthesizes
             venice_search_tool(),
             note_saver_tool(),
         ]

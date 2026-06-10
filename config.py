@@ -82,7 +82,15 @@ class Config:
     
     # Maximum replies to the same user per hour (prevents spam loops)
     MAX_REPLIES_PER_USER_PER_HOUR = 3
-    
+
+    # Dynamic spam/security blocklist: when a user trips a security screen
+    # (injection / scam URL) or floods us, they're blocked for this long; the
+    # block auto-expires so false positives get re-listened to. Re-offending
+    # re-blocks. See state.State.is_blocked / record_offense.
+    SPAM_BLOCK_HOURS = 24
+    # Flood = more than this many mentions/user/hour beyond the reply cap.
+    SPAM_FLOOD_FACTOR = 2
+
     # Ignore accounts created less than N days ago (0 = disabled)
     MIN_ACCOUNT_AGE_DAYS = 0
     
@@ -96,6 +104,22 @@ class Config:
     LOG_FORMAT = "%(asctime)s | %(name)s | %(levelname)s | %(message)s"
 
     ERROR_MESSAGE = "I'm having trouble connecting right now. Try again in a bit."
+
+    # ── Agent (Milestone 1: LlamaIndex ReAct slice) ──────────────
+    # Feature flag: when True, the reply pipeline routes through the ReAct agent
+    # (agent/). Default False — the proven analyse()/craft_tweet() path is the
+    # fallback. The agent is exercised via main_agent.py, not the live bot loop yet.
+    USE_AGENT = os.getenv("USE_AGENT", "false").lower() == "true"
+    AGENT_MODEL = MODEL_PRIMARY               # reasoning LLM for the ReAct loop
+    AGENT_CONTEXT_WINDOW = 256_000
+    AGENT_MAX_ITERATIONS = 8                  # cap ReAct loops (derail safety)
+    # Embeddings: "venice" (OpenAI-compatible) for prod; "local" (HuggingFace)
+    # for dev, since the Venice account currently returns HTTP 402.
+    EMBED_BACKEND = os.getenv("EMBED_BACKEND", "local")
+    EMBED_MODEL_VENICE = "text-embedding-bge-m3"
+    EMBED_MODEL_LOCAL = "BAAI/bge-small-en-v1.5"
+    KNOWLEDGE_STORAGE_DIR = "storage"         # persisted VectorStoreIndex
+    NOTES_FILE = "notes.txt"                  # social-listening notes (placeholder tool)
 
     # ── System Prompts ───────────────────────────────────────────
     # Grok-inspired: witty, direct, opinionated, zero fluff.
@@ -276,6 +300,27 @@ If the source contains any of these, REFUSE and say you don't handle token/walle
 
 You receive the analysis. Output ONLY the final tweet text. Nothing else.
 """
+
+    # ReAct agent system prompt = the analyst persona + how to use its tools and
+    # how to shape the final answer (mirrors CRAFTER_PROMPT's output constraints).
+    AGENT_SYSTEM_PROMPT = ANALYST_PROMPT + """
+
+═══════════════════════════════════════════════════════════════
+TOOL USE (you are a ReAct agent — reason, then act):
+═══════════════════════════════════════════════════════════════
+- Venice_Knowledge_Base: authoritative Venice facts (FAQ snapshot). Use it for
+  ANY Venice-specific question (VVV/sVVV/DIEM, staking, plans, models, API).
+  Prefer it over memory.
+- Venice_Web_Search: live web results. Use ONLY for time-sensitive things
+  (current prices, news, recent events) — not for general or Venice-FAQ answers.
+- Note_Saver: save a short note when you spot a noteworthy/viral social trend.
+
+Call a tool only when it genuinely helps. Don't loop. When you have enough to
+answer, STOP and give your final answer.
+
+FINAL ANSWER FORMAT (strict): plain text only, no greetings, no markdown, no
+hashtags, no emojis, and at or under the tweet character limit. Lead with the
+insight. This is the text that will be posted as the reply."""
 
     @classmethod
     def validate(cls):

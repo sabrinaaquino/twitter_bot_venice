@@ -1,0 +1,71 @@
+"""ReAct agent construction and a single-query run.
+
+build_agent() wires the Venice reasoning LLM, the knowledge-base query tool, the
+web-search tool, and the note-saver under the agent system prompt. run_agent()
+assembles the user message (mirroring venice_api.analyse's context handling),
+injects the URL-safety context, and runs one turn of the ReAct loop.
+
+The guardrail (agent.guardrails) is what enforces safety around this; nothing
+here posts anything.
+"""
+from config import Config
+from safety import build_url_safety_context
+
+
+def _build_user_message(query: str, context: str | None) -> str:
+    """Mirror venice_api.analyse's context/continuation framing."""
+    if not context:
+        return query
+    if context.startswith("[CONTINUING]"):
+        clean = context.replace("[CONTINUING] ", "").replace("[CONTINUING]", "")
+        return f'CONTINUING CONVERSATION — Previous: "{clean}"\nUser now says: "{query}"'
+    return f'CONTEXT (original tweet): "{context}"\nUser asks: "{query}"'
+
+
+def build_agent(llm=None, tools=None):
+    from llama_index.core.agent.workflow import ReActAgent
+    from agent.llm import reasoning_llm
+    from agent.tools import venice_search_tool, note_saver_tool
+    from agent.knowledge_index import knowledge_query_engine_tool
+
+    llm = llm or reasoning_llm()
+    if tools is None:
+        tools = [
+            knowledge_query_engine_tool(llm=llm),
+            venice_search_tool(),
+            note_saver_tool(),
+        ]
+    return ReActAgent(
+        name="venice_mind",
+        description="Replies to Twitter mentions for @venice_mind.",
+        system_prompt=Config.AGENT_SYSTEM_PROMPT,
+        tools=tools,
+        llm=llm,
+        max_iterations=Config.AGENT_MAX_ITERATIONS,
+    )
+
+
+async def run_agent(
+    query: str,
+    *,
+    context: str | None = None,
+    safe_urls=None,
+    suspicious_urls=None,
+    blocked_urls=None,
+    agent=None,
+) -> str:
+    """Run one ReAct turn and return the final plain-text answer.
+
+    `agent` is injectable so the guardrail tests can pass a stub (async .run).
+    """
+    agent = agent or build_agent()
+
+    msg = _build_user_message(query, context)
+    url_ctx = build_url_safety_context(
+        safe_urls or [], suspicious_urls or [], blocked_urls or [],
+    )
+    if url_ctx:
+        msg += f"\n\n{url_ctx}"
+
+    response = await agent.run(user_msg=msg)
+    return str(response).strip()

@@ -25,12 +25,24 @@ from config import Config
 logger = logging.getLogger("main_agent")
 
 
-def reply_for(query, *, context=None, urls=None, image_bytes=None, image_url=None):
+def _enable_verbose():
+    """Quiet noisy HTTP logs and surface RAG retrievals (which docs were used)."""
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("agent.trace").setLevel(logging.INFO)
+    from llama_index.core import Settings
+    from llama_index.core.callbacks import CallbackManager
+    from agent.observability import RetrievalLogger
+    Settings.callback_manager = CallbackManager([RetrievalLogger()])
+
+
+def reply_for(query, *, context=None, urls=None, image_bytes=None, image_url=None, verbose=False):
     """Produce a reply for one input via the active pipeline."""
     urls = urls or []
     if Config.USE_AGENT:
         from agent.guardrails import agent_reply
-        res = agent_reply(query, context=context, urls=urls)
+        from agent.core import build_agent
+        agent = build_agent(verbose=verbose) if verbose else None
+        res = agent_reply(query, context=context, urls=urls, agent=agent)
         if res.text is None:
             return "(no engagement — user blocked / silent)"
         return res.text
@@ -41,7 +53,7 @@ def reply_for(query, *, context=None, urls=None, image_bytes=None, image_url=Non
     return craft_tweet(analysis, context_urls=urls)
 
 
-def _run_on_tweet(tweet_ref, post=False):
+def _run_on_tweet(tweet_ref, post=False, verbose=False):
     Config.validate()
     from clients import get_twitter_client
     from twitter_client import get_tweet_by_id, reply_to_tweet
@@ -60,7 +72,7 @@ def _run_on_tweet(tweet_ref, post=False):
     ctx_text, urls, img_bytes, img_url = fetch_context(client, tweet)
     query = tweet.text.replace("@venice_mind", "").replace("@venice_bot", "").strip()
     reply = reply_for(query, context=ctx_text, urls=urls,
-                      image_bytes=img_bytes, image_url=img_url)
+                      image_bytes=img_bytes, image_url=img_url, verbose=verbose)
 
     if post and reply:
         reply_to_tweet(client, tweet_id, reply)
@@ -74,15 +86,20 @@ def main():
     p.add_argument("tweet", nargs="?", help="tweet URL or numeric id")
     p.add_argument("--query", help="run on this text directly (no Twitter)")
     p.add_argument("--post", action="store_true", help="actually post the reply to the tweet")
+    p.add_argument("-v", "--verbose", action="store_true",
+                   help="show the ReAct reasoning trace + which FAQ docs were retrieved")
     args = p.parse_args()
+
+    if args.verbose:
+        _enable_verbose()
 
     mode = "AGENT" if Config.USE_AGENT else "LEGACY"
     if args.query:
         print(f"[{mode}] query: {args.query!r}")
-        reply = reply_for(args.query)
+        reply = reply_for(args.query, verbose=args.verbose)
     elif args.tweet:
         print(f"[{mode}] tweet: {args.tweet}")
-        reply = _run_on_tweet(args.tweet, post=args.post)
+        reply = _run_on_tweet(args.tweet, post=args.post, verbose=args.verbose)
     else:
         p.error("provide a tweet URL/id or --query")
 

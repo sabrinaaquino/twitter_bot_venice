@@ -22,7 +22,7 @@ def _build_user_message(query: str, context: str | None) -> str:
     return f'CONTEXT (original tweet): "{context}"\nUser asks: "{query}"'
 
 
-def build_agent(llm=None, tools=None):
+def build_agent(llm=None, tools=None, verbose=False):
     from llama_index.core.agent.workflow import ReActAgent
     from agent.llm import reasoning_llm
     from agent.tools import venice_search_tool, note_saver_tool
@@ -42,6 +42,7 @@ def build_agent(llm=None, tools=None):
         tools=tools,
         llm=llm,
         max_iterations=Config.AGENT_MAX_ITERATIONS,
+        verbose=verbose,
     )
 
 
@@ -66,6 +67,15 @@ async def run_agent(
     )
     if url_ctx:
         msg += f"\n\n{url_ctx}"
+
+    # Concrete tweet length budget (mirrors venice_api.analyse). char_limit() is
+    # 280 by default, 25k with X Premium — so inject it at runtime, not the prompt.
+    char_limit = Config.char_limit()
+    msg += (
+        f"\n\nHARD LIMIT: your FINAL answer is a tweet and MUST be {char_limit} "
+        f"characters or fewer. Count before answering and tighten until it fits — "
+        f"lead with the single most useful point, cut the rest."
+    )
 
     response = await agent.run(user_msg=msg)
     return str(response).strip()

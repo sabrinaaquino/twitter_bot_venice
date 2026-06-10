@@ -22,7 +22,7 @@ def _build_user_message(query: str, context: str | None) -> str:
     return f'CONTEXT (original tweet): "{context}"\nUser asks: "{query}"'
 
 
-def build_agent(llm=None, tools=None, verbose=False):
+def build_agent(llm=None, tools=None):
     from llama_index.core.agent.workflow import ReActAgent
     from agent.llm import reasoning_llm
     from agent.tools import knowledge_retrieve_tool, venice_search_tool, note_saver_tool
@@ -41,7 +41,8 @@ def build_agent(llm=None, tools=None, verbose=False):
         tools=tools,
         llm=llm,
         max_iterations=Config.AGENT_MAX_ITERATIONS,
-        verbose=verbose,
+        # verbose stays off — a clean trace is rendered from streamed events
+        # in run_agent() instead of the framework's noisy logger.
     )
 
 
@@ -53,10 +54,13 @@ async def run_agent(
     suspicious_urls=None,
     blocked_urls=None,
     agent=None,
+    verbose: bool = False,
 ) -> str:
     """Run one ReAct turn and return the final plain-text answer.
 
     `agent` is injectable so the guardrail tests can pass a stub (async .run).
+    When verbose, a clean Thought/Action/Observation trace is rendered from the
+    agent's streamed events.
     """
     agent = agent or build_agent()
 
@@ -76,5 +80,12 @@ async def run_agent(
         f"lead with the single most useful point, cut the rest."
     )
 
-    response = await agent.run(user_msg=msg)
+    handler = agent.run(user_msg=msg)
+    # Real ReActAgent.run() returns a streamable handler; the test stub returns a
+    # plain coroutine — only stream when the handler supports it.
+    if verbose and hasattr(handler, "stream_events"):
+        from agent.trace import render_event
+        async for ev in handler.stream_events():
+            render_event(ev)
+    response = await handler
     return str(response).strip()

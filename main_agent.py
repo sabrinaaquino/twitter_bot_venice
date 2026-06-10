@@ -26,9 +26,20 @@ logger = logging.getLogger("main_agent")
 
 
 def _enable_verbose():
-    """Quiet noisy HTTP logs and surface RAG retrievals (which docs were used)."""
+    """Render a clean ReAct trace: quiet HTTP/framework noise, and give the
+    'agent.trace' logger a minimal (timestamp-free) format so the
+    Thought/Action/Observation + retrieved-source lines read cleanly."""
     logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("agent.trace").setLevel(logging.INFO)
+    logging.getLogger("workflows.verbose").setLevel(logging.WARNING)
+    logging.getLogger("llama_index").setLevel(logging.WARNING)
+
+    trace = logging.getLogger("agent.trace")
+    trace.setLevel(logging.INFO)
+    trace.propagate = False
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    trace.handlers = [handler]
+
     from llama_index.core import Settings
     from llama_index.core.callbacks import CallbackManager
     from agent.observability import RetrievalLogger
@@ -40,9 +51,7 @@ def reply_for(query, *, context=None, urls=None, image_bytes=None, image_url=Non
     urls = urls or []
     if Config.USE_AGENT:
         from agent.guardrails import agent_reply
-        from agent.core import build_agent
-        agent = build_agent(verbose=verbose) if verbose else None
-        res = agent_reply(query, context=context, urls=urls, agent=agent)
+        res = agent_reply(query, context=context, urls=urls, verbose=verbose)
         if res.text is None:
             return "(no engagement — user blocked / silent)"
         return res.text

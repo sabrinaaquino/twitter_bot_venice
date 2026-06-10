@@ -64,6 +64,7 @@ async def agent_reply_async(
     state=None,
     now: Optional[float] = None,
     agent=None,
+    verbose: bool = False,
 ) -> AgentResult:
     urls = urls or []
 
@@ -94,6 +95,7 @@ async def agent_reply_async(
         suspicious_urls=suspicious_urls,
         blocked_urls=blocked_urls,
         agent=agent,
+        verbose=verbose,
     )
     if not reply:
         return AgentResult(Config.ERROR_MESSAGE, None)
@@ -129,9 +131,10 @@ def agent_reply(
     state=None,
     now: Optional[float] = None,
     agent=None,
+    verbose: bool = False,
 ) -> AgentResult:
     """Synchronous wrapper for the CLI harness."""
     return asyncio.run(agent_reply_async(
         query, context=context, urls=urls,
-        author_id=author_id, state=state, now=now, agent=agent,
+        author_id=author_id, state=state, now=now, agent=agent, verbose=verbose,
     ))

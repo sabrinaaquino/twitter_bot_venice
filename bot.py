@@ -42,6 +42,7 @@ class VeniceBot:
         
         # Per-user reply tracking (anti-spam)
         self.user_reply_counts: dict[str, int] = {}  # user_id → reply count this hour
+        self.user_mention_counts: dict[str, int] = {}  # user_id → mentions seen this hour (flood detection)
         self.user_reply_reset = time.time()
         
         logger.info("Bot ready.")
@@ -90,6 +91,7 @@ class VeniceBot:
         # Also reset per-user counts
         if time.time() - self.user_reply_reset >= 3600:
             self.user_reply_counts = {}
+            self.user_mention_counts = {}
             self.user_reply_reset = time.time()
     
     def _is_blocked_account(self, author) -> bool:
@@ -114,6 +116,17 @@ class VeniceBot:
         """Track reply to this user."""
         uid = str(user_id)
         self.user_reply_counts[uid] = self.user_reply_counts.get(uid, 0) + 1
+
+    def _register_mention_is_flood(self, user_id: str) -> bool:
+        """Count this mention and report whether the user is now flooding us."""
+        from agent.guardrails import is_flood
+        uid = str(user_id)
+        self.user_mention_counts[uid] = self.user_mention_counts.get(uid, 0) + 1
+        return is_flood(
+            self.user_mention_counts[uid],
+            Config.MAX_REPLIES_PER_USER_PER_HOUR,
+            Config.SPAM_FLOOD_FACTOR,
+        )
 
     def _tweet_age_ok(self, tweet) -> bool:
         """Return True if tweet is recent enough to reply to."""
@@ -250,7 +263,21 @@ class VeniceBot:
         if self._is_blocked_account(author):
             self.state.add_tweet(tweet.id)
             return
-        
+
+        # 1b. Dynamic spam/security blocklist (24h TTL, auto-expiring)
+        now = time.time()
+        if self.state.is_blocked(tweet.author_id, now):
+            logger.info(f"Blocked user {tweet.author_id} (spam/security) — not engaging")
+            self.state.add_tweet(tweet.id)
+            return
+
+        # 1c. Flooding → record a spam offense (blocks them) and stop engaging
+        if self._register_mention_is_flood(tweet.author_id):
+            logger.warning(f"User {tweet.author_id} flooding — recording spam offense")
+            self.state.record_offense(tweet.author_id, now)
+            self.state.add_tweet(tweet.id)
+            return
+
         # 2. Per-user rate limit
         if self._user_reply_limit_reached(tweet.author_id):
             self.state.add_tweet(tweet.id)
@@ -284,35 +311,31 @@ class VeniceBot:
             img_bytes = ctx_images[0]
             img_url = None
 
-        # ── Generate reply ──
+        # ── Generate reply (agent path or legacy pipeline) ──
         query = tweet.text.replace("@venice_bot", "").replace("@venice_mind", "").strip()
 
-        analysis = analyse(
-            query,
-            context=ctx_text,
-            image_bytes=img_bytes,
-            image_url=img_url,
-            urls=ctx_urls,
-        )
-        if analysis == Config.ERROR_MESSAGE:
-            logger.warning(f"Analysis failed for tweet {tweet.id}")
+        if Config.USE_AGENT:
+            final = self._agent_reply(query, ctx_text, ctx_urls, tweet.author_id, now)
+        else:
+            final = self._legacy_reply(query, ctx_text, ctx_urls, img_bytes, img_url)
+
+        if final is None:                       # silent (blocked / re-offense / failure)
+            self.state.add_tweet(tweet.id)
+            return
+        if final == Config.ERROR_MESSAGE:        # transient — don't mark processed, retry later
+            logger.warning(f"Reply generation failed for tweet {tweet.id}")
             return
 
-        use_vision = bool(img_bytes or img_url)
-        final = craft_tweet(analysis, use_vision=use_vision, context_urls=ctx_urls)
-        if not final or final == Config.ERROR_MESSAGE:
-            logger.warning(f"Crafting failed for tweet {tweet.id}")
+        # ── Post reply (or log it in dry-run) ──
+        if Config.DRY_RUN:
+            logger.info(f"[DRY RUN] would reply to {tweet.id} (user {tweet.author_id}): {final}")
+            self._record_reply(tweet)
             return
 
-        # ── Post reply ──
         try:
             resp = reply_to_tweet(self.client, tweet.id, final)
             if resp:
-                self.hourly_replies += 1
-                self._increment_user_replies(tweet.author_id)
-                if not self.state.get_allowed_author(tweet.conversation_id):
-                    self.state.set_allowed_author(tweet.conversation_id, tweet.author_id)
-                self.state.add_tweet(tweet.id)
+                self._record_reply(tweet)
                 logger.info(f"Replied to tweet {tweet.id} (user {tweet.author_id}: {self.user_reply_counts.get(str(tweet.author_id), 0)} this hour)")
             else:
                 logger.warning(f"Reply returned None for tweet {tweet.id}")
@@ -322,6 +345,37 @@ class VeniceBot:
             logger.error(f"Error posting reply: {e}")
 
         time.sleep(Config.TWEET_DELAY)
+
+    # ── Reply generation paths ───────────────────────────────────
+
+    def _legacy_reply(self, query, ctx_text, ctx_urls, img_bytes, img_url):
+        """The proven two-step pipeline. Returns reply text, ERROR_MESSAGE, or None."""
+        analysis = analyse(query, context=ctx_text, image_bytes=img_bytes,
+                           image_url=img_url, urls=ctx_urls)
+        if analysis == Config.ERROR_MESSAGE:
+            return Config.ERROR_MESSAGE
+        use_vision = bool(img_bytes or img_url)
+        final = craft_tweet(analysis, use_vision=use_vision, context_urls=ctx_urls)
+        return final or Config.ERROR_MESSAGE
+
+    def _agent_reply(self, query, ctx_text, ctx_urls, author_id, now):
+        """The ReAct agent path, with the mandatory safety guardrail + spam policy.
+        Returns reply text, ERROR_MESSAGE, or None (silent: no engagement)."""
+        from agent.guardrails import agent_reply, offense_reply_text
+        result = agent_reply(query, context=ctx_text, urls=ctx_urls)
+        if result.trip in ("injection", "scam"):
+            prior = self.state.times_offended(author_id)
+            self.state.record_offense(author_id, now)   # blocks 24h
+            return offense_reply_text(result, prior)     # warn once, then None
+        return result.text
+
+    def _record_reply(self, tweet):
+        """Bookkeeping after a (real or dry-run) reply: counts, author lock, processed."""
+        self.hourly_replies += 1
+        self._increment_user_replies(tweet.author_id)
+        if not self.state.get_allowed_author(tweet.conversation_id):
+            self.state.set_allowed_author(tweet.conversation_id, tweet.author_id)
+        self.state.add_tweet(tweet.id)
 
     # ── Main loop ────────────────────────────────────────────────
 
@@ -400,10 +454,12 @@ class VeniceBot:
         while True:
             try:
                 self.process_mentions()
-                self.state.save()
+                if not Config.DRY_RUN:
+                    self.state.save()
             except KeyboardInterrupt:
                 logger.info("Shutting down …")
-                self.state.save()
+                if not Config.DRY_RUN:
+                    self.state.save()
                 break
             except Exception as e:
                 logger.critical(f"Critical error in main loop: {e}", exc_info=True)

@@ -55,6 +55,18 @@ class AgentResult:
     trip: Optional[str] = None
 
 
+def offense_reply_text(result: AgentResult, prior_offenses: int) -> Optional[str]:
+    """Spam policy: warn ONCE on a user's first security offense, then stay silent
+    on re-offense (don't keep feeding a known abuser engagement)."""
+    return result.text if prior_offenses == 0 else None
+
+
+def is_flood(mention_count: int, reply_cap: int, factor: int) -> bool:
+    """A user is flooding when their mentions this window exceed factor× the
+    per-user reply cap — treated as a spam offense."""
+    return mention_count > factor * reply_cap
+
+
 async def agent_reply_async(
     query: str,
     *,

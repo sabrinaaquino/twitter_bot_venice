@@ -110,6 +110,11 @@ class Config:
     # (agent/). Default False — the proven analyse()/craft_tweet() path is the
     # fallback. The agent is exercised via main_agent.py, not the live bot loop yet.
     USE_AGENT = os.getenv("USE_AGENT", "false").lower() == "true"
+    # Dry run: poll + generate as normal, but never post and never persist state —
+    # log the would-be reply instead. Lets us observe the live loop against real
+    # mentions with zero prod side effects. Gates ALL outbound writes for now
+    # (only replies exist); split per-action if standalone posting is added later.
+    DRY_RUN = os.getenv("DRY_RUN", "false").lower() == "true"
     AGENT_MODEL = MODEL_PRIMARY               # reasoning LLM for the ReAct loop
     AGENT_CONTEXT_WINDOW = 256_000
     AGENT_MAX_ITERATIONS = 8                  # cap ReAct loops (derail safety)

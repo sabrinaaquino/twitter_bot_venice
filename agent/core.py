@@ -8,8 +8,29 @@ injects the URL-safety context, and runs one turn of the ReAct loop.
 The guardrail (agent.guardrails) is what enforces safety around this; nothing
 here posts anything.
 """
+from datetime import datetime, timezone
+
 from config import Config
 from safety import build_url_safety_context
+
+
+def time_context(now: datetime) -> str:
+    """Ambient time awareness for the agent so it doesn't guess the date.
+
+    UTC + day-of-week + time-of-day. UTC (not 'local') because a tweet doesn't
+    reliably tell us the user's timezone — better an accurate UTC than a
+    confidently-wrong local time.
+    """
+    h = now.hour
+    if 5 <= h < 12:
+        tod = "morning"
+    elif 12 <= h < 17:
+        tod = "afternoon"
+    elif 17 <= h < 22:
+        tod = "evening"
+    else:
+        tod = "night"
+    return f"Current time: {now.strftime('%A, %Y-%m-%d %H:%M')} UTC ({tod})."
 
 
 def _build_user_message(query: str, context: str | None) -> str:
@@ -64,7 +85,7 @@ async def run_agent(
     """
     agent = agent or build_agent()
 
-    msg = _build_user_message(query, context)
+    msg = f"{time_context(datetime.now(timezone.utc))}\n\n{_build_user_message(query, context)}"
     url_ctx = build_url_safety_context(
         safe_urls or [], suspicious_urls or [], blocked_urls or [],
     )

@@ -22,11 +22,13 @@ logger = logging.getLogger(__name__)
 
 
 class VeniceBot:
-    def __init__(self):
+    def __init__(self, client=None):
         logger.info("Initializing Venice X Bot …")
         self.state = State()
         self.state.load()
-        self.client = get_twitter_client()
+        # `client` is injectable so the loop can be driven by a fake client in
+        # tests (offline); production passes None and builds the real one.
+        self.client = client or get_twitter_client()
         self.bot_id = self._fetch_bot_id()
         self.session_start = datetime.now(timezone.utc)
 

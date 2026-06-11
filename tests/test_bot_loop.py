@@ -136,6 +136,15 @@ def test_dry_run_resolves_bot_id_by_username(tmp_path, monkeypatch):
     assert client.used_get_me is False        # get_me (user-context) avoided
 
 
+def test_bot_user_id_skips_api_lookup(tmp_path, monkeypatch):
+    monkeypatch.setattr(Config, "STATE_FILE", str(tmp_path / "s.json"))
+    monkeypatch.setattr(Config, "BOT_USER_ID", "1958278952956342272")
+    client = FakeClient()
+    b = VeniceBot(client=client)
+    assert b.bot_id == 1958278952956342272
+    assert client.used_get_user is False and client.used_get_me is False
+
+
 def test_validate_dry_run_only_needs_bearer(monkeypatch):
     monkeypatch.setattr(Config, "DRY_RUN", True)
     monkeypatch.setattr(Config, "TWITTER_BEARER_TOKEN", "b")

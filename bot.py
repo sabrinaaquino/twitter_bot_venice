@@ -54,9 +54,14 @@ class VeniceBot:
     def _fetch_bot_id(self) -> int:
         """Get our own user ID (with one rate-limit retry).
 
-        In DRY_RUN we use app-only auth (bearer), where get_me() isn't available,
-        so resolve the id by username instead.
+        If Config.BOT_USER_ID is set, use it and skip the API entirely (some X API
+        tiers 402 on user lookups). Otherwise look it up: by username in DRY_RUN
+        (app-only auth, where get_me() isn't available) or via get_me() in prod.
         """
+        if Config.BOT_USER_ID:
+            logger.info(f"Using configured bot id {Config.BOT_USER_ID}")
+            return int(Config.BOT_USER_ID)
+
         for attempt in range(2):
             try:
                 if Config.DRY_RUN:
@@ -72,6 +77,13 @@ class VeniceBot:
                     self._wait_for_rate_limit(e)
                 else:
                     raise
+            except tweepy.errors.HTTPException as e:
+                # e.g. a tier that 402s on user lookups — fail cleanly with guidance
+                # (ValueError is reported by main() without a traceback).
+                raise ValueError(
+                    f"Couldn't fetch the bot's user id from X ({e}). Your API tier may "
+                    f"not permit user lookups — set BOT_USER_ID in .env to skip this call."
+                ) from e
         raise RuntimeError("Could not fetch bot user ID")
 
     def _wait_for_rate_limit(self, exc: tweepy.errors.TooManyRequests):

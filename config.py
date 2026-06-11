@@ -330,6 +330,10 @@ insight. This is the text that will be posted as the reply."""
     # Account handle the bot replies as (used for app-only bot-id lookup in
     # DRY_RUN, where get_me() — which needs user-context auth — isn't available).
     BOT_USERNAME = os.getenv("BOT_USERNAME", "venice_mind")
+    # Optional: set the bot's numeric user id directly to skip the X user-lookup
+    # API call entirely (some X API tiers 402 on user lookups). Find it in the
+    # X 402 error or any user-info page.
+    BOT_USER_ID = os.getenv("BOT_USER_ID")
 
     @classmethod
     def validate(cls):

@@ -20,9 +20,16 @@ BOT_ID = 999
 class FakeClient:
     def __init__(self):
         self.created = []  # recorded create_tweet calls (text, in_reply_to)
+        self.used_get_me = False
+        self.used_get_user = False
 
     def get_me(self):
+        self.used_get_me = True
         return SimpleNamespace(data=SimpleNamespace(id=BOT_ID))
+
+    def get_user(self, username=None, user_auth=True):
+        self.used_get_user = True
+        return SimpleNamespace(data=SimpleNamespace(id=BOT_ID, username=username))
 
     def create_tweet(self, text=None, in_reply_to_tweet_id=None):
         self.created.append((text, in_reply_to_tweet_id))
@@ -115,3 +122,32 @@ def test_dry_run_does_not_post(bot, monkeypatch):
     _process(bot, make_tweet("what is DIEM?"))
     assert bot.client.created == []                  # logged, never posted
     assert bot.state.is_processed("100") is True     # still marked processed in-memory
+
+
+# ── Read-only dry-run auth (option B) ─────────────────────────────
+
+def test_dry_run_resolves_bot_id_by_username(tmp_path, monkeypatch):
+    monkeypatch.setattr(Config, "STATE_FILE", str(tmp_path / "s.json"))
+    monkeypatch.setattr(Config, "DRY_RUN", True)
+    client = FakeClient()
+    b = VeniceBot(client=client)
+    assert b.bot_id == BOT_ID
+    assert client.used_get_user is True       # app-only lookup
+    assert client.used_get_me is False        # get_me (user-context) avoided
+
+
+def test_validate_dry_run_only_needs_bearer(monkeypatch):
+    monkeypatch.setattr(Config, "DRY_RUN", True)
+    monkeypatch.setattr(Config, "TWITTER_BEARER_TOKEN", "b")
+    monkeypatch.setattr(Config, "VENICE_API_KEY", "v")
+    monkeypatch.setattr(Config, "TWITTER_ACCESS_TOKEN", "")     # missing is fine in dry-run
+    Config.validate()  # must not raise
+
+
+def test_validate_prod_requires_access_tokens(monkeypatch):
+    monkeypatch.setattr(Config, "DRY_RUN", False)
+    monkeypatch.setattr(Config, "TWITTER_BEARER_TOKEN", "b")
+    monkeypatch.setattr(Config, "VENICE_API_KEY", "v")
+    monkeypatch.setattr(Config, "TWITTER_ACCESS_TOKEN", "")
+    with pytest.raises(ValueError):
+        Config.validate()

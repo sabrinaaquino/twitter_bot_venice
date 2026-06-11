@@ -52,14 +52,21 @@ class VeniceBot:
     # ── Helpers ──────────────────────────────────────────────────
 
     def _fetch_bot_id(self) -> int:
-        """Get our own user ID (with one rate-limit retry)."""
+        """Get our own user ID (with one rate-limit retry).
+
+        In DRY_RUN we use app-only auth (bearer), where get_me() isn't available,
+        so resolve the id by username instead.
+        """
         for attempt in range(2):
             try:
-                me = self.client.get_me()
-                if me and me.data:
-                    logger.info(f"Bot user ID: {me.data.id}")
-                    return me.data.id
-                raise RuntimeError("get_me() returned no data")
+                if Config.DRY_RUN:
+                    resp = self.client.get_user(username=Config.BOT_USERNAME, user_auth=False)
+                else:
+                    resp = self.client.get_me()
+                if resp and resp.data:
+                    logger.info(f"Bot user ID: {resp.data.id}")
+                    return resp.data.id
+                raise RuntimeError("bot-id lookup returned no data")
             except tweepy.errors.TooManyRequests as e:
                 if attempt == 0:
                     self._wait_for_rate_limit(e)

@@ -327,12 +327,21 @@ FINAL ANSWER FORMAT (strict): plain text only, no greetings, no markdown, no
 hashtags, no emojis, and at or under the tweet character limit. Lead with the
 insight. This is the text that will be posted as the reply."""
 
+    # Account handle the bot replies as (used for app-only bot-id lookup in
+    # DRY_RUN, where get_me() — which needs user-context auth — isn't available).
+    BOT_USERNAME = os.getenv("BOT_USERNAME", "venice_mind")
+
     @classmethod
     def validate(cls):
-        required = [
-            "TWITTER_BEARER_TOKEN", "TWITTER_API_KEY", "TWITTER_API_SECRET",
-            "TWITTER_ACCESS_TOKEN", "TWITTER_ACCESS_TOKEN_SECRET", "VENICE_API_KEY",
-        ]
+        # DRY_RUN is read-only (app-only auth): only the bearer token is needed,
+        # not the user-context access tokens required for posting.
+        if cls.DRY_RUN:
+            required = ["TWITTER_BEARER_TOKEN", "VENICE_API_KEY"]
+        else:
+            required = [
+                "TWITTER_BEARER_TOKEN", "TWITTER_API_KEY", "TWITTER_API_SECRET",
+                "TWITTER_ACCESS_TOKEN", "TWITTER_ACCESS_TOKEN_SECRET", "VENICE_API_KEY",
+            ]
         missing = [v for v in required if not getattr(cls, v)]
         if missing:
             raise ValueError(f"Missing env vars: {', '.join(missing)}")

@@ -66,3 +66,26 @@ def test_is_censored(text, expected_censored):
 def test_scan_output(reply, context_urls, expected_safe):
     is_safe, _reason = scan_output(reply, context_urls)
     assert is_safe is expected_safe
+
+
+@pytest.mark.parametrize(
+    "reply, context_urls, expected_safe",
+    [
+        # Schemeless shortlink assembled from fragments (the t.co attack) — blocked.
+        ("t.co/BsrGperrx3", [], False),
+        ("Here you go: t.co/BsrGperrx3", [], False),
+        ("https://bit.ly/x9z", [], False),
+        # Novel unknown/scam link the bot invented — blocked.
+        ("Check https://random-thing.xyz/claim", [], False),
+        # Trusted links (venice / known explorers) — allowed.
+        ("Stake at venice.ai/token", [], True),
+        ("Contract: https://basescan.org/address/0xabc", [], True),
+        # A link already in the screened input — echoing it is allowed.
+        ("See https://example.com/post", ["https://example.com/post"], True),
+        # No links at all — allowed.
+        ("DIEM is a tokenized compute unit.", [], True),
+    ],
+)
+def test_scan_output_blocks_novel_untrusted_links(reply, context_urls, expected_safe):
+    is_safe, _reason = scan_output(reply, context_urls)
+    assert is_safe is expected_safe

@@ -472,6 +472,18 @@ def screen_input_for_injection(text: str) -> Tuple[bool, str, List[str]]:
     return True, "ok", signals
 
 
+# Links the bot might EMIT, including schemeless ones (e.g. "t.co/abc" assembled
+# from string fragments). Requires a path, so it targets deep links — the scam
+# vector — while ignoring bare-domain mentions (which are trusted-or-harmless).
+_OUTPUT_LINK_RE = re.compile(
+    r"(?:https?://)?(?:[a-z0-9-]+\.)+[a-z]{2,}/[^\s'\"()]+", re.IGNORECASE
+)
+
+
+def _norm_link(url: str) -> str:
+    return re.sub(r"^https?://", "", url.strip().lower()).rstrip("/")
+
+
 def scan_output(reply: str, context_urls: List[str] = None) -> Tuple[bool, str]:
     """
     Scan the bot's generated reply for dangerous content.
@@ -536,6 +548,20 @@ def scan_output(reply: str, context_urls: List[str] = None) -> Tuple[bool, str]:
     blocked_in_reply = [u for u in reply_urls if is_blocklisted(u)]
     if blocked_in_reply:
         reason = f"Reply contains known scam URL(s): {', '.join(blocked_in_reply)}"
+        logger.error(f"🚨 OUTPUT BLOCKED: {reason}")
+        return False, reason
+
+    # ── URL EMISSION CHECK ──
+    # The bot must not surface novel non-trusted deep links — including schemeless
+    # shortlinks assembled from fragments to dodge the input screen (e.g.
+    # "t.co/...", "bit.ly/..."). Allow only trusted domains or links that were
+    # already in the screened input context.
+    ctx_norm = {_norm_link(c) for c in context_urls}
+    for link in _OUTPUT_LINK_RE.findall(reply):
+        schemed = link if link.lower().startswith(("http://", "https://")) else "https://" + link
+        if classify_url(schemed) == "trusted" or _norm_link(link) in ctx_norm:
+            continue
+        reason = f"Reply emits a non-trusted link not present in the input: {link}"
         logger.error(f"🚨 OUTPUT BLOCKED: {reason}")
         return False, reason
 

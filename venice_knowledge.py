@@ -107,6 +107,59 @@ def get_models(type=None):
     return data
 
 
+def missing_configured_models(available_ids):
+    """Return {role: model_id} for configured models absent from `available_ids`.
+
+    Pure — no network. `available_ids` is any iterable of model-ID strings.
+    """
+    available = set(available_ids)
+    return {
+        role: mid
+        for role, mid in Config.configured_models().items()
+        if mid not in available
+    }
+
+
+def validate_configured_models():
+    """Check the bot's configured model IDs against Venice's live model list.
+
+    Logs loudly (CRITICAL for the primary, ERROR for fallbacks) for any model
+    that no longer exists, so a renamed/retired model surfaces as a clear,
+    actionable alert instead of silently degrading the bot. Returns the missing
+    {role: model_id} map.
+
+    If the available list can't be determined (empty — live fetch failed AND no
+    snapshot), skips validation with a warning rather than reporting every model
+    as missing.
+    """
+    available = [m.get("id") for m in get_models() if m.get("id")]
+    if not available:
+        logger.warning(
+            "Could not determine available Venice models; skipping model validation"
+        )
+        return {}
+
+    missing = missing_configured_models(available)
+    if not missing:
+        logger.info("All configured Venice models are available (%d in list).", len(available))
+        return {}
+
+    for role, mid in missing.items():
+        level = logging.CRITICAL if role == "MODEL_PRIMARY" else logging.ERROR
+        logger.log(
+            level,
+            "Configured %s=%r is NOT in Venice's available model list — calls "
+            "using it will fail. Update config.py.",
+            role, mid,
+        )
+    if "MODEL_PRIMARY" in missing:
+        logger.critical(
+            "PRIMARY model is unavailable — every reply will degrade to a fallback. "
+            "Fix config.py immediately."
+        )
+    return missing
+
+
 def summarize_models(models, limit=30):
     """One compact line per model: name (id) - ctx - capabilities - price - type."""
     lines = []

@@ -45,6 +45,20 @@ _FRESH_DATA_KEYWORDS = (
 )
 
 
+def _http_error_hint(status_code: int) -> Optional[str]:
+    """Human-readable hint for a Venice HTTP error status, or None if unknown.
+
+    Turns a bare status code into an actionable cause so logs distinguish a
+    billing/auth/renamed-model problem from a transient outage.
+    """
+    return {
+        401: "authentication failed — check VENICE_API_KEY",
+        402: "payment required — the Venice account has no credits / a billing issue",
+        404: "model not found — it may have been renamed or retired; check config.py",
+        429: "rate limited by Venice — backing off",
+    }.get(status_code)
+
+
 def _strip_refs(text: str) -> str:
     return _REF_RE.sub("", text).strip()
 
@@ -122,6 +136,16 @@ def _call_venice(
         r.raise_for_status()
         text = r.json()["choices"][0]["message"]["content"].strip()
         return _strip_refs(text)
+    except requests.exceptions.HTTPError as e:
+        status = e.response.status_code if e.response is not None else None
+        hint = _http_error_hint(status) if status else None
+        if hint:
+            # Auth/billing/renamed-model errors are config problems, not transient —
+            # log them loudly so they don't hide behind the fallback cascade.
+            logger.error(f"Venice API error ({model}): HTTP {status} — {hint}")
+        else:
+            logger.error(f"Venice API error ({model}): {e}")
+        return None
     except Exception as e:
         logger.error(f"Venice API error ({model}): {e}")
         return None

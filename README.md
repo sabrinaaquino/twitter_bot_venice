@@ -49,11 +49,17 @@ needed.
 
 ```bash
 # One query through the ReAct agent, with the reasoning trace
-USE_AGENT=true EMBED_BACKEND=venice python main_agent.py --query "what is DIEM?" --verbose
+USE_AGENT=true python main_agent.py --query "what is DIEM?" --verbose
 
 # The legacy pipeline, for comparison
 python main_agent.py --query "what is DIEM?"
 ```
+
+**FAQ retrieval backend** (`KNOWLEDGE_BACKEND`, default `keyword`): the agent looks
+up Venice facts from the committed FAQ. `keyword` (default) uses a dependency-free
+keyword scorer — right-sized for the small (~90 Q&A) FAQ and needs no embeddings.
+Set `KNOWLEDGE_BACKEND=vector EMBED_BACKEND=venice` to use semantic vector search
+instead (installs `llama-index-embeddings-*`; see `requirements.txt`).
 
 ### Dry-run against real mentions (no posting)
 

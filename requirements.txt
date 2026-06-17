@@ -5,8 +5,8 @@ python-dotenv
 # Agent (Milestone 1) — LlamaIndex ReAct agent stack
 llama-index-core
 llama-index-llms-openai-like
-llama-index-embeddings-openai-like
-# Optional, dev-only local embedding fallback (the Venice account currently
-# returns HTTP 402, so live embeddings fail). Pulls sentence-transformers/torch
-# (heavy) — install only for the local CLI demo:
-#   pip install llama-index-embeddings-huggingface
+
+# Vector RAG is OPT-IN (KNOWLEDGE_BACKEND=vector). The default keyword backend
+# needs no embeddings. Install these only if you switch to vector retrieval:
+#   pip install llama-index-embeddings-openai-like   # Venice embeddings (prod)
+#   pip install llama-index-embeddings-huggingface   # local dev fallback (heavy: torch)

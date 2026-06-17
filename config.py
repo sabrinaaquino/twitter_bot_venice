@@ -118,8 +118,14 @@ class Config:
     AGENT_MODEL = MODEL_PRIMARY               # reasoning LLM for the ReAct loop
     AGENT_CONTEXT_WINDOW = 256_000
     AGENT_MAX_ITERATIONS = 8                  # cap ReAct loops (derail safety)
-    # Embeddings: "venice" (OpenAI-compatible) for prod; "local" (HuggingFace)
-    # for dev, since the Venice account currently returns HTTP 402.
+    # Knowledge retrieval backend for the FAQ tool:
+    #   "keyword" (default) → legacy venice_knowledge.relevant_faqs scorer; no
+    #       embeddings, no index. Right-sized for the small (~90 Q&A) FAQ.
+    #   "vector"            → semantic VectorStoreIndex (knowledge.retrieve);
+    #       needs an embedding model + the llama-index-embeddings-* deps (opt-in).
+    KNOWLEDGE_BACKEND = os.getenv("KNOWLEDGE_BACKEND", "keyword")
+    # Embeddings (only used when KNOWLEDGE_BACKEND="vector"): "venice"
+    # (OpenAI-compatible) for prod; "local" (HuggingFace) for dev.
     EMBED_BACKEND = os.getenv("EMBED_BACKEND", "local")
     EMBED_MODEL_VENICE = "text-embedding-bge-m3"
     EMBED_MODEL_LOCAL = "BAAI/bge-small-en-v1.5"

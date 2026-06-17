@@ -129,6 +129,7 @@ def test_dry_run_does_not_post(bot, monkeypatch):
 def test_dry_run_resolves_bot_id_by_username(tmp_path, monkeypatch):
     monkeypatch.setattr(Config, "STATE_FILE", str(tmp_path / "s.json"))
     monkeypatch.setattr(Config, "DRY_RUN", True)
+    monkeypatch.setattr(Config, "BOT_USER_ID", None)   # force username-lookup path (ignore any local .env)
     client = FakeClient()
     b = VeniceBot(client=client)
     assert b.bot_id == BOT_ID

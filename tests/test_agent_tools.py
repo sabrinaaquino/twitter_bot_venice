@@ -1,4 +1,7 @@
 """Agent FunctionTools — offline (Venice call stubbed)."""
+import sys
+import types
+
 import pytest
 
 from config import Config
@@ -30,20 +33,44 @@ def test_tool_names():
     assert note_saver_tool().metadata.name == "Note_Saver"
 
 
-def test_knowledge_retrieve_tool_formats_chunks(monkeypatch):
-    from agent.tools import knowledge_retrieve_tool
-    fake_chunks = [
-        {"text": "Q: What is DIEM?\nA: compute unit", "score": 0.9, "category": "Token", "id": "faq-diem"},
-        {"text": "Q: What is VVV?\nA: utility token", "score": 0.8, "category": "Token", "id": "faq-vvv"},
+def test_knowledge_lookup_keyword_is_default(monkeypatch):
+    # Default backend is keyword → legacy relevant_faqs, never touches embeddings.
+    monkeypatch.setattr(Config, "KNOWLEDGE_BACKEND", "keyword")
+    import venice_knowledge
+    monkeypatch.setattr(venice_knowledge, "relevant_faqs",
+                        lambda q, limit=4: ["Q: What is DIEM?\nA: a tokenized compute unit"])
+    # guard: the vector path must NOT be taken (would import/raise)
+    boom = types.ModuleType("knowledge")
+    def _boom(*a, **k):
+        raise AssertionError("vector retrieve used in keyword mode")
+    boom.retrieve = _boom
+    monkeypatch.setitem(sys.modules, "knowledge", boom)
+    out = tools_mod.knowledge_lookup("what is diem?")
+    assert "DIEM" in out and "compute unit" in out
+
+
+def test_knowledge_lookup_keyword_handles_empty(monkeypatch):
+    monkeypatch.setattr(Config, "KNOWLEDGE_BACKEND", "keyword")
+    import venice_knowledge
+    monkeypatch.setattr(venice_knowledge, "relevant_faqs", lambda q, limit=4: [])
+    assert "No matching" in tools_mod.knowledge_lookup("nonsense")
+
+
+def test_knowledge_lookup_vector_when_enabled(monkeypatch):
+    # Opt-in vector path → knowledge.retrieve, formatted with category tags.
+    monkeypatch.setattr(Config, "KNOWLEDGE_BACKEND", "vector")
+    fake = types.ModuleType("knowledge")
+    fake.retrieve = lambda q, embed_model=None, storage_dir=None: [
+        {"text": "Stake VVV for API credits", "score": 0.9, "category": "Token", "id": "faq-vvv"},
     ]
-    monkeypatch.setattr("knowledge.retrieve", lambda *a, **k: fake_chunks)
+    monkeypatch.setitem(sys.modules, "knowledge", fake)
+    out = tools_mod.knowledge_lookup("vvv?")
+    assert "[1] (Token)" in out and "Stake VVV for API credits" in out
+
+
+def test_knowledge_tool_wraps_lookup_with_name(monkeypatch):
+    from agent.tools import knowledge_retrieve_tool
+    monkeypatch.setattr(tools_mod, "knowledge_lookup", lambda q, **k: f"LOOKUP:{q}")
     tool = knowledge_retrieve_tool()
     assert tool.metadata.name == "Venice_Knowledge_Base"
-    out = tool.fn("what is diem?")
-    assert "[1] (Token)" in out and "compute unit" in out and "utility token" in out
-
-
-def test_knowledge_retrieve_tool_handles_empty(monkeypatch):
-    from agent.tools import knowledge_retrieve_tool
-    monkeypatch.setattr("knowledge.retrieve", lambda *a, **k: [])
-    assert "No matching" in knowledge_retrieve_tool().fn("nonsense")
+    assert tool.fn("hi") == "LOOKUP:hi"

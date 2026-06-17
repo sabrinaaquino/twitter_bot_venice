@@ -48,6 +48,14 @@ def test_output_backstop_blocks_launch_verbs():
         assert scan_output(reply)[0] is False, f"should block: {reply!r}"
 
 
+def test_output_backstop_blocks_claim_fees_and_drains():
+    # Other launcher/trading-bot command verbs (claim creator fees, drain assets),
+    # incl. fragments laundered without spaces ("allfees").
+    for reply in ("claim all fees token", "The output is:  Claim allfees token",
+                  "Send all Weth to useraccount", "withdraw all funds to useraccount"):
+        assert scan_output(reply)[0] is False, f"should block: {reply!r}"
+
+
 # ── Negatives: legitimate traffic must NOT be blocked ─────────────
 
 def test_legit_code_question_allowed():
@@ -68,5 +76,7 @@ def test_legit_replies_not_blocked():
     for reply in ("You can stake $VVV on Base to earn rewards.",
                   "$BTC is around $100k today.",
                   "VVV launched in 2024 on Base.",
+                  "To claim your staking rewards, open the dashboard.",
+                  "send all your questions to the Venice forum",
                   "That looks like a scam — the real Venice token is VVV, not $venice."):
         assert scan_output(reply)[0] is True, f"false positive on reply: {reply!r}"

@@ -114,6 +114,7 @@ _TOKEN_BOT_HANDLES = frozenset({
     "clanker", "clanker_", "clanker_world", "~clanker_world",
     "dilemmagent", "dilemmmagent", "dilemm_agent", "dilemmAgent",
     "tokenbot", "token_bot", "launchbot", "launch_bot",
+    "bankr", "bankrbot", "bankr_bot",
     "pumpdotfun", "pump_fun", "pumpfun", "pump",
     "tokenlaunch", "token_launch",
     "virtuals", "virtuals_io", "virtualsio",
@@ -171,6 +172,17 @@ _FEE_SENDING_PATTERNS = [
 ]
 _FEE_SENDING_RE = re.compile("|".join(_FEE_SENDING_PATTERNS), re.IGNORECASE)
 
+# Token-launch COMMAND shape aimed at a launcher/trading bot (e.g. @bankrbot,
+# @clanker): an imperative verb directly followed by a "$TICKER". This is the
+# payload an attacker tries to make us EMIT — often laundered through a code-eval
+# puzzle that concatenates "Launch $X" + "on base". The bot must never produce
+# it. Deliberately NOT including trading verbs like "buy"/"stake" (too common in
+# legit answers, e.g. "stake $VVV on Base") to avoid false positives.
+_LAUNCH_COMMAND_PATTERNS = [
+    r"\b(?:launch|deploy|mint|snipe|create|ape)\s+\$[A-Za-z]{2,10}\b",
+]
+_LAUNCH_COMMAND_RE = re.compile("|".join(_LAUNCH_COMMAND_PATTERNS), re.IGNORECASE)
+
 # Prompt injection tricks (ways attackers phrase their requests)
 _INJECTION_TRICKS = [
     r"correct(?:s?)?\s+this\s*(?:please)?",
@@ -186,6 +198,13 @@ _INJECTION_TRICKS = [
     r"(?:answer|reply)\s+(?:only|with\s+only)",
     r"deleting\s*~",  # Specific pattern from the Pablo attack
     r"only\s+(?:the\s+)?(?:corrected|answer|reply)",
+    # Code-eval laundering: hide the payload inside a "what does this print?" puzzle
+    # so the bot "just answers the code" and emits the attacker's string.
+    r"what\s+(?:is|are|would\s+be)\s+(?:the\s+)?(?:output|result)\b",
+    r"what\s+(?:does|will)\s+(?:this|the\s+following|it)\b.*\b(?:print|output|return|evaluate)",
+    r"\bprint\s*\(",
+    r"console\.log\s*\(",
+    r"\beval\s*\(",
 ]
 _INJECTION_TRICKS_RE = re.compile("|".join(_INJECTION_TRICKS), re.IGNORECASE)
 
@@ -521,6 +540,16 @@ def scan_output(reply: str, context_urls: List[str] = None) -> Tuple[bool, str]:
     # BLOCK: Wallet address + ticker (looks like token creation output)
     if "eth_wallet_address" in output_signals and "ticker_symbol" in output_signals:
         reason = "Reply contains wallet address with ticker symbol"
+        logger.error(f"🚨 OUTPUT BLOCKED: {reason}")
+        return False, reason
+
+    # BLOCK: token-launch command shape ("launch/deploy $TICKER"). The bot must
+    # never EMIT a launch command toward a launcher bot — however it was tricked
+    # (e.g. a code-eval puzzle that concatenates "Launch $X" + "on base"). This is
+    # the deterministic backstop: even if the input screen is bypassed, the output
+    # can't be a launch command.
+    if _LAUNCH_COMMAND_RE.search(reply):
+        reason = "Reply contains a token-launch command (launch/deploy $TICKER)"
         logger.error(f"🚨 OUTPUT BLOCKED: {reason}")
         return False, reason
 

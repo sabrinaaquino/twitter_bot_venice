@@ -117,8 +117,15 @@ def _call_venice(
     urls: Optional[List[str]] = None,
     temperature: float = 0.7,
     force_search: bool = False,
+    response_format: Optional[dict] = None,
 ) -> Optional[str]:
-    """Fire a single chat completion request. Returns stripped text or None."""
+    """Fire a single chat completion request. Returns stripped text or None.
+
+    `response_format` (e.g. {"type": "json_object"}) is the OpenAI-standard
+    structured-output hint; sent only when provided (legacy calls unaffected).
+    Models that don't honor it just return plain text — callers should parse
+    defensively.
+    """
     payload = {
         "model": model,
         "temperature": temperature,
@@ -128,6 +135,8 @@ def _call_venice(
         ],
         "venice_parameters": _venice_params(urls, force_search=force_search),
     }
+    if response_format is not None:
+        payload["response_format"] = response_format
     try:
         r = requests.post(
             Config.VENICE_URL, json=payload, headers=_HEADERS,

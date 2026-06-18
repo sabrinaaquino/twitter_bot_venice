@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from config import Config
-from safety import (
+from agent.safety import (
     screen_input_for_injection,
     screen_urls,
     scan_output,
@@ -97,6 +97,15 @@ async def agent_reply_async(
     if blocked_urls:
         logger.warning(f"Blocked scam URL(s): {blocked_urls}")
         return AgentResult(get_scam_warning_reply(suspicious_urls, blocked_urls), trip="scam")
+
+    # ── PRE-3: LLM security/spam gate (semantic; catches novel tricks the
+    # deterministic screens miss). Runs only when enabled, after the cheap screens.
+    # Fail-open (errors → RESPOND); STOP → spam offense (caller warns once, blocks).
+    if Config.LLM_SECURITY_FILTER:
+        from agent.security_filter import llm_should_respond
+        if not llm_should_respond(query, context):
+            logger.warning("LLM security gate: STOP (spam/scam/risk)")
+            return AgentResult(get_injection_warning_reply(), trip="spam")
 
     # ── AGENT (only reached if PRE passed) ──
     from agent.core import run_agent

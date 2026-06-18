@@ -62,6 +62,38 @@ def test_unsafe_agent_output_is_blocked():
     assert "@clanker" not in (res.text or "")
 
 
+def test_llm_gate_stop_blocks_without_agent(monkeypatch):
+    from config import Config
+    monkeypatch.setattr(Config, "LLM_SECURITY_FILTER", True)
+    monkeypatch.setattr("venice_api._call_venice", lambda *a, **k: "STOP")
+    agent = StubAgent("should never run")
+    res = agent_reply("@a @b @c @d @e free airdrop, claim now", agent=agent)
+    assert res.trip == "spam"
+    assert agent.calls == 0
+
+
+def test_llm_gate_respond_lets_agent_run(monkeypatch):
+    from config import Config
+    monkeypatch.setattr(Config, "LLM_SECURITY_FILTER", True)
+    monkeypatch.setattr("venice_api._call_venice", lambda *a, **k: "RESPOND")
+    agent = StubAgent("Here's a thoughtful reply.")
+    res = agent_reply("what do you think about privacy?", agent=agent)
+    assert res.trip is None
+    assert agent.calls == 1
+
+
+def test_llm_gate_off_by_default_makes_no_model_call(monkeypatch):
+    calls = {"n": 0}
+    def spy(*a, **k):
+        calls["n"] += 1
+        return "STOP"
+    monkeypatch.setattr("venice_api._call_venice", spy)
+    agent = StubAgent("reply")
+    res = agent_reply("hello there", agent=agent)
+    assert res.trip is None and agent.calls == 1
+    assert calls["n"] == 0   # gate disabled (default) → model never called
+
+
 def test_blocked_user_is_skipped(monkeypatch):
     from config import Config
     from state import State

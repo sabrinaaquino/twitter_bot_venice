@@ -384,7 +384,7 @@ class VeniceBot:
         Returns reply text, ERROR_MESSAGE, or None (silent: no engagement)."""
         from agent.guardrails import agent_reply, offense_reply_text
         result = agent_reply(query, context=ctx_text, urls=ctx_urls)
-        if result.trip in ("injection", "scam"):
+        if result.trip in ("injection", "scam", "spam"):
             prior = self.state.times_offended(author_id)
             self.state.record_offense(author_id, now)   # blocks 24h
             return offense_reply_text(result, prior)     # warn once, then None

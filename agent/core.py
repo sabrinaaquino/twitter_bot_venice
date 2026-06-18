@@ -11,7 +11,7 @@ here posts anything.
 from datetime import datetime, timezone
 
 from config import Config
-from safety import build_url_safety_context
+from agent.safety import build_url_safety_context
 
 
 def time_context(now: datetime) -> str:

@@ -31,16 +31,46 @@ python main.py
 
 ## Testing
 
+Automated tests use **pytest** (a dev dependency):
+
 ```bash
-# Run offline tests
-python test_local.py --offline-only
+pip install pytest
 
-# Test a specific tweet
-python reply_to_tweet.py https://x.com/user/status/1234567890
-
-# Run mock queries
-python mock_test.py
+pytest               # offline suite — no API keys needed (the default)
+pytest -m live       # live Venice API tests (require VENICE_API_KEY)
 ```
+
+The offline suite covers the safety layer, knowledge retrieval, the agent
+guardrail, the spam guard, and the bot loop. The loop tests drive `bot.py` with
+a fake Twitter client (`tests/test_bot_loop.py`), so no real credentials are
+needed.
+
+### Trying the agent by hand
+
+```bash
+# One query through the ReAct agent, with the reasoning trace
+USE_AGENT=true python main_agent.py --query "what is DIEM?" --verbose
+
+# The legacy pipeline, for comparison
+python main_agent.py --query "what is DIEM?"
+```
+
+**FAQ retrieval backend** (`KNOWLEDGE_BACKEND`, default `keyword`): the agent looks
+up Venice facts from the committed FAQ. `keyword` (default) uses a dependency-free
+keyword scorer — right-sized for the small (~90 Q&A) FAQ and needs no embeddings.
+Set `KNOWLEDGE_BACKEND=vector EMBED_BACKEND=venice` to use semantic vector search
+instead (installs `llama-index-embeddings-*`; see `requirements.txt`).
+
+### Dry-run against real mentions (no posting)
+
+```bash
+DRY_RUN=true USE_AGENT=true EMBED_BACKEND=venice python main.py
+```
+
+Polls real mentions and **logs** the would-be reply instead of posting — fully
+read-only, so only `TWITTER_BEARER_TOKEN` is required (set `BOT_USERNAME` to the
+account whose mentions to watch). See [Configuration](#configuration) for
+`USE_AGENT` / `DRY_RUN`.
 
 ## Refreshing Venice knowledge
 

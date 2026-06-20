@@ -18,6 +18,7 @@ state.json
 # storage/ = persisted VectorStoreIndex (rebuildable); notes.txt = social-listening notes
 storage/
 notes.txt
+docs/
 
 # IDE
 .vscode/

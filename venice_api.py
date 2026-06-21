@@ -162,6 +162,36 @@ def _call_venice(
 
 # ── Public API ───────────────────────────────────────────────────
 
+_DESCRIBE_SYSTEM = (
+    "You describe images factually and concisely for a bot deciding how to reply. "
+    "State only what is visibly present — no speculation, no commentary."
+)
+
+
+def describe_image(image_bytes: Optional[bytes] = None, image_url: Optional[str] = None) -> Optional[str]:
+    """Return a short factual description of an image, or None.
+
+    Used by the agent path (which reasons in text) to "see" images: describe the
+    image up-front with a vision model and feed the text to the ReAct loop. Kimi
+    (multimodal) primary, MODEL_VISION_FALLBACK (Qwen3-VL) on failure.
+    """
+    if not (image_bytes or image_url):
+        return None
+    if image_url:
+        img_part = {"type": "image_url", "image_url": {"url": image_url}}
+    else:
+        b64 = base64.b64encode(image_bytes).decode()
+        img_part = {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}
+    content = [
+        {"type": "text", "text": "Describe this image for a tweet reply."},
+        img_part,
+    ]
+    out = _call_venice(Config.MODEL_PRIMARY, _DESCRIBE_SYSTEM, content)
+    if not out:
+        out = _call_venice(Config.MODEL_VISION_FALLBACK, _DESCRIBE_SYSTEM, content)
+    return out or None
+
+
 def analyse(
     query: str,
     *,

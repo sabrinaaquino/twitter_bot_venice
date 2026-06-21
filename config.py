@@ -118,6 +118,9 @@ class Config:
     AGENT_MODEL = MODEL_PRIMARY               # reasoning LLM for the ReAct loop
     AGENT_CONTEXT_WINDOW = 256_000
     AGENT_MAX_ITERATIONS = 8                  # cap ReAct loops (derail safety)
+    # Vision on the agent path: when an image is attached, describe it up-front
+    # (reusing the Venice vision models) and feed the text to the ReAct loop.
+    AGENT_VISION = os.getenv("AGENT_VISION", "true").lower() == "true"
     # Knowledge retrieval backend for the FAQ tool:
     #   "keyword" (default) → legacy venice_knowledge.relevant_faqs scorer; no
     #       embeddings, no index. Right-sized for the small (~90 Q&A) FAQ.

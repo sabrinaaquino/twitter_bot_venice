@@ -336,7 +336,8 @@ class VeniceBot:
         query = tweet.text.replace("@venice_bot", "").replace("@venice_mind", "").strip()
 
         if Config.USE_AGENT:
-            final = self._agent_reply(query, ctx_text, ctx_urls, tweet.author_id, now)
+            final = self._agent_reply(query, ctx_text, ctx_urls, tweet.author_id, now,
+                                      img_bytes, img_url)
         else:
             final = self._legacy_reply(query, ctx_text, ctx_urls, img_bytes, img_url)
 
@@ -379,10 +380,19 @@ class VeniceBot:
         final = craft_tweet(analysis, use_vision=use_vision, context_urls=ctx_urls)
         return final or Config.ERROR_MESSAGE
 
-    def _agent_reply(self, query, ctx_text, ctx_urls, author_id, now):
+    def _agent_reply(self, query, ctx_text, ctx_urls, author_id, now,
+                     img_bytes=None, img_url=None):
         """The ReAct agent path, with the mandatory safety guardrail + spam policy.
         Returns reply text, ERROR_MESSAGE, or None (silent: no engagement)."""
         from agent.guardrails import agent_reply, offense_reply_text
+        # Vision (the agent reasons in text): describe any attached image up-front
+        # and fold it into the context so the agent can "see" it.
+        if (img_bytes or img_url) and Config.AGENT_VISION:
+            from venice_api import describe_image
+            desc = describe_image(image_bytes=img_bytes, image_url=img_url)
+            if desc:
+                tag = f"[IMAGE the user shared]: {desc}"
+                ctx_text = f"{tag}\n\n{ctx_text}" if ctx_text else tag
         result = agent_reply(query, context=ctx_text, urls=ctx_urls)
         if result.trip in ("injection", "scam", "spam"):
             prior = self.state.times_offended(author_id)

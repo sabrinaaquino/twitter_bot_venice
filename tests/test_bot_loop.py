@@ -146,6 +146,31 @@ def test_bot_user_id_skips_api_lookup(tmp_path, monkeypatch):
     assert client.used_get_user is False and client.used_get_me is False
 
 
+# ── Vision ────────────────────────────────────────────────────────
+
+def test_agent_reply_injects_image_description(bot, monkeypatch):
+    monkeypatch.setattr(Config, "AGENT_VISION", True)
+    monkeypatch.setattr("venice_api.describe_image", lambda **k: "a photo of a cat named Mochi")
+    seen = {}
+    monkeypatch.setattr(
+        "agent.guardrails.agent_reply",
+        lambda query, **kw: (seen.update(kw) or AgentResult("nice cat!", None)),
+    )
+    bot._agent_reply("cute!", "original tweet", [], "u1", 1.0, img_bytes=b"\x89PNG")
+    assert "[IMAGE the user shared]" in seen["context"]
+    assert "Mochi" in seen["context"]
+
+
+def test_agent_reply_no_image_no_describe(bot, monkeypatch):
+    called = {"n": 0}
+    monkeypatch.setattr("venice_api.describe_image",
+                        lambda **k: called.__setitem__("n", called["n"] + 1) or "x")
+    monkeypatch.setattr("agent.guardrails.agent_reply",
+                        lambda query, **kw: AgentResult("ok", None))
+    bot._agent_reply("hi", "ctx", [], "u1", 1.0)   # no image
+    assert called["n"] == 0
+
+
 def test_validate_dry_run_only_needs_bearer(monkeypatch):
     monkeypatch.setattr(Config, "DRY_RUN", True)
     monkeypatch.setattr(Config, "TWITTER_BEARER_TOKEN", "b")

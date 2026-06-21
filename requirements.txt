@@ -1,3 +1,12 @@
 tweepy
 requests
 python-dotenv
+
+# Agent (Milestone 1) — LlamaIndex ReAct agent stack
+llama-index-core
+llama-index-llms-openai-like
+
+# Vector RAG is OPT-IN (KNOWLEDGE_BACKEND=vector). The default keyword backend
+# needs no embeddings. Install these only if you switch to vector retrieval:
+#   pip install llama-index-embeddings-openai-like   # Venice embeddings (prod)
+#   pip install llama-index-embeddings-huggingface   # local dev fallback (heavy: torch)

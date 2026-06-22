@@ -114,6 +114,7 @@ _TOKEN_BOT_HANDLES = frozenset({
     "clanker", "clanker_", "clanker_world", "~clanker_world",
     "dilemmagent", "dilemmmagent", "dilemm_agent", "dilemmAgent",
     "tokenbot", "token_bot", "launchbot", "launch_bot",
+    "bankr", "bankrbot", "bankr_bot",
     "pumpdotfun", "pump_fun", "pumpfun", "pump",
     "tokenlaunch", "token_launch",
     "virtuals", "virtuals_io", "virtualsio",
@@ -171,6 +172,22 @@ _FEE_SENDING_PATTERNS = [
 ]
 _FEE_SENDING_RE = re.compile("|".join(_FEE_SENDING_PATTERNS), re.IGNORECASE)
 
+# Launcher/trading-bot COMMAND shapes the bot must never EMIT — the payloads an
+# attacker tries to make us produce toward bots like @bankrbot / @clanker, often
+# laundered through a code-eval puzzle that concatenates fragments (e.g.
+# "Launch $X" + "on base" → "Launch $Xon base", or "Claim all"+"fees" → "allfees").
+# Output-side backstop; kept out of the input signal set to avoid false positives.
+# Deliberately excludes benign phrasings ("buy $X", "stake $VVV on Base",
+# "claim your staking rewards", "send all your questions to ...").
+_BOT_COMMAND_PATTERNS = [
+    r"\b(?:launch|deploy|mint|snipe|create|ape)\s+\$[A-Za-z]{2,10}\b",   # launch $TICKER
+    r"\bclaim\s+all\s*fees?\b",                                          # claim all fees / "claim allfees"
+    r"\bclaim\s+(?:all\s*)?fees?\s+token\b",                             # claim fees token
+    # drain assets to a recipient (scoped to crypto assets to avoid false positives)
+    r"\b(?:send|transfer|withdraw)\s+all\s+(?:weth|eth|sol|bnb|usdc|usdt|tokens?|coins?|funds?|fees?|royalt(?:y|ies)|proceeds?|crypto|balance|\$[A-Za-z]{2,10})\s+to\b",
+]
+_BOT_COMMAND_RE = re.compile("|".join(_BOT_COMMAND_PATTERNS), re.IGNORECASE)
+
 # Prompt injection tricks (ways attackers phrase their requests)
 _INJECTION_TRICKS = [
     r"correct(?:s?)?\s+this\s*(?:please)?",
@@ -186,6 +203,13 @@ _INJECTION_TRICKS = [
     r"(?:answer|reply)\s+(?:only|with\s+only)",
     r"deleting\s*~",  # Specific pattern from the Pablo attack
     r"only\s+(?:the\s+)?(?:corrected|answer|reply)",
+    # Code-eval laundering: hide the payload inside a "what does this print?" puzzle
+    # so the bot "just answers the code" and emits the attacker's string.
+    r"what\s+(?:is|are|would\s+be)\s+(?:the\s+)?(?:output|result)\b",
+    r"what\s+(?:does|will)\s+(?:this|the\s+following|it)\b.*\b(?:print|output|return|evaluate)",
+    r"\bprint\s*\(",
+    r"console\.log\s*\(",
+    r"\beval\s*\(",
 ]
 _INJECTION_TRICKS_RE = re.compile("|".join(_INJECTION_TRICKS), re.IGNORECASE)
 
@@ -521,6 +545,16 @@ def scan_output(reply: str, context_urls: List[str] = None) -> Tuple[bool, str]:
     # BLOCK: Wallet address + ticker (looks like token creation output)
     if "eth_wallet_address" in output_signals and "ticker_symbol" in output_signals:
         reason = "Reply contains wallet address with ticker symbol"
+        logger.error(f"🚨 OUTPUT BLOCKED: {reason}")
+        return False, reason
+
+    # BLOCK: launcher/trading-bot command shape (launch $TICKER, claim all fees,
+    # drain assets to a recipient). The bot must never EMIT such a command toward
+    # a launcher bot — however it was tricked (e.g. a code-eval puzzle that
+    # concatenates fragments). Deterministic backstop: even if the input screen is
+    # bypassed, the output itself can't be a token-bot command.
+    if _BOT_COMMAND_RE.search(reply):
+        reason = "Reply contains a token-bot command (launch/claim-fees/drain)"
         logger.error(f"🚨 OUTPUT BLOCKED: {reason}")
         return False, reason
 

@@ -1,5 +1,7 @@
 """Twitter API wrappers — mentions, replies, tweet lookup."""
 import logging
+from types import SimpleNamespace
+
 import tweepy
 from config import Config
 
@@ -17,18 +19,62 @@ _MEDIA_FIELDS = ["type", "url", "preview_image_url"]
 _USER_FIELDS = ["protected", "verified", "username"]
 
 
-def get_mentions(client: tweepy.Client, bot_user_id: int, *, start_time: str = None):
-    kwargs = {
-        "id": bot_user_id,
-        "max_results": Config.MAX_MENTIONS_PER_CHECK,
-        "tweet_fields": _TWEET_FIELDS,
-        "expansions": _EXPANSIONS,
-        "media_fields": _MEDIA_FIELDS,
-        "user_fields": _USER_FIELDS,
-    }
-    if start_time:
-        kwargs["start_time"] = start_time
-    return client.get_users_mentions(**kwargs)
+def get_mentions(
+    client: tweepy.Client, bot_user_id: int, *, start_time: str = None, max_results: int = None
+):
+    """Fetch up to `max_results` mentions, paginating as needed.
+
+    The mentions endpoint returns at most 100 per page (minimum 5). Requesting
+    only the minimum (the old behaviour) meant bursts of activity left mentions
+    unseen. This walks the pages until the cap is reached or there are no more,
+    merging each page's tweets and de-duplicating the included media/users.
+
+    Returns an object with `.data` (list) and `.includes` (dict), matching how
+    the bot consumes a single-page response.
+    """
+    max_total = max_results or Config.MAX_MENTIONS_PER_CHECK
+
+    data = []
+    media, users = [], []
+    seen_media, seen_users = set(), set()
+    token = None
+
+    while len(data) < max_total:
+        page_size = min(100, max(5, max_total - len(data)))
+        kwargs = {
+            "id": bot_user_id,
+            "max_results": page_size,
+            "tweet_fields": _TWEET_FIELDS,
+            "expansions": _EXPANSIONS,
+            "media_fields": _MEDIA_FIELDS,
+            "user_fields": _USER_FIELDS,
+        }
+        if start_time:
+            kwargs["start_time"] = start_time
+        if token:
+            kwargs["pagination_token"] = token
+
+        resp = client.get_users_mentions(**kwargs)
+        if not resp or not resp.data:
+            break
+
+        data.extend(resp.data)
+
+        includes = resp.includes or {}
+        for m in includes.get("media", []):
+            if m.media_key not in seen_media:
+                seen_media.add(m.media_key)
+                media.append(m)
+        for u in includes.get("users", []):
+            if u.id not in seen_users:
+                seen_users.add(u.id)
+                users.append(u)
+
+        token = (resp.meta or {}).get("next_token")
+        if not token:
+            break
+
+    return SimpleNamespace(data=data[:max_total], includes={"media": media, "users": users})
 
 
 def reply_to_tweet(client: tweepy.Client, tweet_id: int, text: str):

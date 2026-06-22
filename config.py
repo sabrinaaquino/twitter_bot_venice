@@ -92,6 +92,11 @@ class Config:
     # ── Behaviour Flags ──────────────────────────────────────────
     USE_SESSION_START_CUTOFF = True
     STATE_FILE = "state.json"
+    # State is bounded: mentions only arrive from the recent lookback window, so
+    # remembering more than the last N processed tweets / conversation locks just
+    # bloats the file. Oldest entries are evicted first.
+    MAX_PROCESSED_TWEETS = 1000
+    MAX_ALLOWED_AUTHORS = 1000
     LOG_LEVEL = "INFO"
     LOG_FORMAT = "%(asctime)s | %(name)s | %(levelname)s | %(message)s"
 

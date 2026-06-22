@@ -70,3 +70,34 @@ def get_tweet_by_id(client: tweepy.Client, tweet_id: int):
         media_fields=_MEDIA_FIELDS,
         user_fields=["username", "name"],
     )
+
+
+class TweetCache:
+    """Memoize get_tweet_by_id for the process lifetime.
+
+    Parent/root/quoted tweets are immutable, so the bot needn't re-fetch the
+    same tweet on every reply in a thread. Bounded (oldest evicted first) so it
+    can't grow without limit. Only successful lookups are cached; None results
+    (errors/missing) are left uncached so they get another chance later.
+    """
+
+    def __init__(self, client: tweepy.Client, max_size: int = None):
+        self._client = client
+        self._cache: dict = {}
+        self._max = max_size or Config.TWEET_CACHE_SIZE
+        self.hits = 0
+        self.misses = 0
+
+    def get(self, tweet_id):
+        key = str(tweet_id)
+        if key in self._cache:
+            self.hits += 1
+            return self._cache[key]
+
+        self.misses += 1
+        resp = get_tweet_by_id(self._client, tweet_id)
+        if resp is not None:
+            self._cache[key] = resp
+            if len(self._cache) > self._max:
+                self._cache.pop(next(iter(self._cache)))
+        return resp

@@ -12,7 +12,7 @@ import tweepy
 from config import Config
 from state import State
 from clients import get_twitter_client
-from twitter_client import get_mentions, reply_to_tweet, get_tweet_by_id
+from twitter_client import get_mentions, reply_to_tweet, TweetCache
 from venice_api import analyse, craft_tweet
 from venice_knowledge import validate_configured_models
 from image_processor import process_tweet_media
@@ -29,6 +29,10 @@ class VeniceBot:
         self.client = get_twitter_client()
         self.bot_id = self._fetch_bot_id()
         self.session_start = datetime.now(timezone.utc)
+
+        # Cache immutable thread-context lookups (parent/root/quoted tweets) so
+        # they aren't re-fetched from the API on every reply in a thread.
+        self.tweet_cache = TweetCache(self.client)
 
         # Surface any retired/renamed model IDs at boot (Plan 0001) — better a
         # loud startup alert than silent per-reply degradation later.
@@ -149,7 +153,7 @@ class VeniceBot:
         for ref in refs:
             if ref.type == "quoted":
                 try:
-                    resp = get_tweet_by_id(self.client, ref.id)
+                    resp = self.tweet_cache.get(ref.id)
                     if resp and resp.data:
                         ctx_text = resp.data.text
                         ctx_urls.extend(
@@ -176,7 +180,7 @@ class VeniceBot:
         # 1. Fetch immediate parent (the tweet this is replying to)
         if replied_to_id and replied_to_id != tweet.id:
             try:
-                parent = get_tweet_by_id(self.client, replied_to_id)
+                parent = self.tweet_cache.get(replied_to_id)
                 if parent and parent.data:
                     parent_text = parent.data.text
                     if is_followup:
@@ -198,7 +202,7 @@ class VeniceBot:
             tweet.conversation_id != tweet.id and 
             tweet.conversation_id != replied_to_id):
             try:
-                root = get_tweet_by_id(self.client, tweet.conversation_id)
+                root = self.tweet_cache.get(tweet.conversation_id)
                 if root and root.data:
                     root_text = root.data.text
                     ctx_text = f"[THREAD ROOT]: {root_text}\n\n{ctx_text}" if ctx_text else f"[THREAD ROOT]: {root_text}"

@@ -71,6 +71,9 @@ class Config:
     MAX_TWEET_AGE_MINUTES = 60
     MAX_REPLIES_PER_HOUR = 15    # reduced from 30 (safer)
     TWEET_DELAY = 5              # pause between processing tweets
+    # Thread-context lookups (parent/root/quoted tweets) are cached for the
+    # process lifetime since tweet content is immutable; bounded to avoid growth.
+    TWEET_CACHE_SIZE = 500
     
     # ── Anti-Spam / Bot Protection ──────────────────────────────
     # Known bot accounts to ignore (add usernames or user IDs)
